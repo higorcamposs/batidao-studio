@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "downloadedAt": "2026-09-03",
+  "licensePolicy": "Only sources with explicit commercial-use and redistribution permission are eligible for the MVP bundle.",
+  "packs": [
+    { "id": "boochi-free-drum-samples", "path": "sources/boochi-free-drum-samples", "license": "CC0-1.0", "source": "https://github.com/Boochi44/free-drum-samples" },
+    { "id": "tr808-fischer", "path": "sources/tr808-fischer", "license": "CC0-1.0", "source": "https://github.com/tidalcycles/sounds-tr808-fischer" },
+    { "id": "drum-machines", "path": "sources/drum-machines", "license": "Public-domain declaration", "source": "https://github.com/smpldsnds/drum-machines" },
+    { "id": "stargate-sample-pack", "path": "sources/stargate-sample-pack", "license": "CC0-1.0", "source": "https://github.com/stargatedaw/stargate-sample-pack" }
+  ]
+}

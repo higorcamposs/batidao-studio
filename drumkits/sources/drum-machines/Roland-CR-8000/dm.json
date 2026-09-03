@@ -1,0 +1,20 @@
+{
+  "baseUrl": "https://smpldsnds.github.io/drum-machines/roland-cr-8000/",
+  "name": "roland-cr-8000",
+  "samples": [
+    "clap",
+    "clave",
+    "conga-high",
+    "conga-low",
+    "cowbell",
+    "cymball",
+    "hihat-closed",
+    "hihat-open",
+    "kick",
+    "rimshot",
+    "snare",
+    "tom-high",
+    "tom-low"
+  ],
+  "formats": ["ogg", "m4a"]
+}

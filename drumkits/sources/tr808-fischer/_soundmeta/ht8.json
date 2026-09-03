@@ -1,0 +1,38 @@
+{
+  "copyright": "(c) Michael Fischer / Technopolis",
+  "description": "TR-808 hi toms",
+  "email": "alex@slab.org",
+  "license": "cc0",
+  "maintainer": "alex",
+  "metadata-format": "clean-0.1",
+  "provenance": "",
+  "shortname": "ht8",
+  "sound_type": "sample",
+  "sounds": [
+    {
+      "description": "",
+      "filename": "ht8/HT00.WAV",
+      "shortname": "HT00"
+    },
+    {
+      "description": "",
+      "filename": "ht8/HT10.WAV",
+      "shortname": "HT10"
+    },
+    {
+      "description": "",
+      "filename": "ht8/HT25.WAV",
+      "shortname": "HT25"
+    },
+    {
+      "description": "",
+      "filename": "ht8/HT50.WAV",
+      "shortname": "HT50"
+    },
+    {
+      "description": "",
+      "filename": "ht8/HT75.WAV",
+      "shortname": "HT75"
+    }
+  ]
+}

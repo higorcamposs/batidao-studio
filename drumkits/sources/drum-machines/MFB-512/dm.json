@@ -1,0 +1,16 @@
+{
+  "baseUrl": "https://smpldsnds.github.io/drum-machines/mfb-512/",
+  "name": "mfb-512",
+  "samples": [
+    "clap",
+    "cymbal",
+    "hihat-closed",
+    "hihat-open",
+    "kick",
+    "snare",
+    "tom-hi",
+    "tom-low",
+    "tom-mid"
+  ],
+  "formats": ["ogg", "m4a"]
+}
