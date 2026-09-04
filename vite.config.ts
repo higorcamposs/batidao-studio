@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -35,4 +35,10 @@ export default defineConfig({
     },
   ],
   server: { host: "0.0.0.0", port: 5000, allowedHosts: true, strictPort: true },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: "./src/test/setup.ts",
+    css: true,
+  },
 });
