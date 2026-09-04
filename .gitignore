@@ -2,4 +2,7 @@ node_modules
 dist
 *.tsbuildinfo
 screenshots
+.playwright/
+playwright-report/
+test-results/
 .DS_Store
