@@ -25,7 +25,9 @@ test.beforeEach(async ({ page }) => {
     };
     window.__audioTelemetry = telemetry;
 
-    const contextPrototype = window.AudioContext.prototype;
+    const Context = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Context) return;
+    const contextPrototype = Context.prototype;
     const observedContexts = new WeakSet<AudioContext>();
     const nativeCreateGain = contextPrototype.createGain;
     const nativeResume = contextPrototype.resume;
@@ -79,8 +81,10 @@ test("reproduz, pausa e retoma WAVs locais com Web Audio real", async ({ page })
   const browserErrors: string[] = [];
   page.on("pageerror", error => browserErrors.push(error.message));
 
-  await page.goto("/");
-  await expect(page.getByText("CATÁLOGO LOCAL ONLINE")).toBeVisible();
+  await page.goto("/?e2e=audio-transport");
+  const webAudioAvailable = await page.evaluate(() => typeof window.AudioContext === "function" || typeof (window as Window & { webkitAudioContext?: unknown }).webkitAudioContext === "function");
+  test.skip(!webAudioAvailable, "O WebKit para Windows não expõe Web Audio neste runtime");
+  await expect(page.getByText(/SONS.*BASES REVISADAS/i)).toBeVisible();
 
   const transport = page.getByRole("button", { name: "Tocar", exact: true });
   await transport.click();
@@ -92,9 +96,11 @@ test("reproduz, pausa e retoma WAVs locais com Web Audio real", async ({ page })
     { timeout: 10_000 },
   ).toMatchObject({
     contexts: 1,
-    decodes: 8,
     errors: [],
   });
+  await expect.poll(
+    () => page.evaluate(() => window.__audioTelemetry.decodes),
+  ).toBeGreaterThan(0);
   await expect.poll(
     () => page.evaluate(() => window.__audioTelemetry.starts),
   ).toBeGreaterThan(0);

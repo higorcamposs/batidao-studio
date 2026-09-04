@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
@@ -35,8 +35,9 @@ try {
   // Non-Nix CI runners use the browsers and audio backend installed by Playwright.
 }
 
+const localPlaywright = join(process.cwd(), "node_modules", ".bin", process.platform === "win32" ? "playwright.CMD" : "playwright");
 const result = spawnSync(
-  process.platform === "win32" ? "playwright.cmd" : "playwright",
+  existsSync(localPlaywright) ? localPlaywright : (process.platform === "win32" ? "playwright.cmd" : "playwright"),
   ["test", ...process.argv.slice(2)],
   { env, stdio: "inherit", shell: process.platform === "win32" },
 );

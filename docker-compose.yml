@@ -1,0 +1,7 @@
+services:
+  batidao-studio:
+    build: .
+    container_name: batidao-studio
+    ports:
+      - "5000:80"
+    restart: unless-stopped

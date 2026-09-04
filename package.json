@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:e2e": "node scripts/run-e2e.mjs"
+    "test:e2e": "node scripts/run-e2e.mjs",
+    "catalog": "node scripts/generate-sample-catalog.mjs"
   },
   "dependencies": {
     "@testing-library/jest-dom": "^6.9.1",
@@ -17,7 +18,7 @@
     "jsdom": "^29.1.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "vitest": "^4.1.11"
+    "vitest": "^2.1.9"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",
