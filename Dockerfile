@@ -1,8 +1,8 @@
 FROM node:22-alpine AS build
 WORKDIR /app
-COPY package*.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN npm install -g pnpm@11.6.0 \
-  && (pnpm install --no-frozen-lockfile --ignore-scripts || test -x node_modules/.bin/tsc)
+  && pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm exec tsc -b && pnpm exec vite build
 

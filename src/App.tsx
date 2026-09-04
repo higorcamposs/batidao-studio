@@ -5,140 +5,1908 @@ import { AudioEngine } from "./audioEngine";
 import { exportWav } from "./exportWav";
 import { rapPreset, rapPresetCount } from "./rapPresets";
 import { deleteProject, listProjects, saveProject } from "./storage";
-import { COLORS, type MasterSettings, type Pattern, type SampleDescriptor, type Step, type StudioProject, type StudioProjectV1, type StudioProjectV2, type Track } from "./types";
+import { KeyboardStudio, makeMelodicTracks } from "./KeyboardStudio";
+import {
+  defaultAssist,
+  loopTicks,
+  rootFromKey,
+  TICKS_PER_STEP,
+} from "./melodic";
+import { instrumentById } from "./instruments";
+import {
+  COLORS,
+  type MasterSettings,
+  type MelodicTrack,
+  type Pattern,
+  type SampleDescriptor,
+  type Step,
+  type StudioProject,
+  type StudioProjectV3,
+  type Track,
+} from "./types";
 
 const uid = (prefix: string) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
-const starterNames = ["Kick", "Snare", "Clap", "Closed Hat", "Open Hat", "Percussion", "Tom", "808"];
-const starterFiles = ["drum-samples/03-soulful-vintage/kicks/vintage-kick-01.wav", "drum-samples/03-soulful-vintage/snares/vintage-snare-01.wav", "drum-samples/03-soulful-vintage/claps/cl-lofi.wav", "drum-samples/03-soulful-vintage/hi-hats/ch-lofi.wav", "drum-samples/03-soulful-vintage/open-hats/oh00-lofi.wav", "drum-samples/03-soulful-vintage/percs/perc-maraca.wav", "drum-samples/03-soulful-vintage/percs/lt00-lofi.wav", "drum-samples/03-soulful-vintage/808s/808-lofi.wav"];
-const masterDefault: MasterSettings = { volume: 76, low: 0, mid: 0, high: 0, compressor: 25, limiter: true, preset: "Clean" };
+const starterNames = [
+  "Kick",
+  "Snare",
+  "Clap",
+  "Closed Hat",
+  "Open Hat",
+  "Percussion",
+  "Tom",
+  "808",
+];
+const starterFiles = [
+  "drum-samples/03-soulful-vintage/kicks/vintage-kick-01.wav",
+  "drum-samples/03-soulful-vintage/snares/vintage-snare-01.wav",
+  "drum-samples/03-soulful-vintage/claps/cl-lofi.wav",
+  "drum-samples/03-soulful-vintage/hi-hats/ch-lofi.wav",
+  "drum-samples/03-soulful-vintage/open-hats/oh00-lofi.wav",
+  "drum-samples/03-soulful-vintage/percs/perc-maraca.wav",
+  "drum-samples/03-soulful-vintage/percs/lt00-lofi.wav",
+  "drum-samples/03-soulful-vintage/808s/808-lofi.wav",
+];
+const masterDefault: MasterSettings = {
+  volume: 76,
+  low: 0,
+  mid: 0,
+  high: 0,
+  compressor: 25,
+  limiter: true,
+  preset: "Clean",
+};
 const masterPresets: Record<string, MasterSettings> = {
   Clean: masterDefault,
-  Punch: { ...masterDefault, low: 3, mid: 1, high: 2, compressor: 55, preset: "Punch" },
-  Warm: { ...masterDefault, low: 4, mid: 2, high: -2, compressor: 35, preset: "Warm" },
-  Loud: { ...masterDefault, low: 2, mid: 1, high: 3, compressor: 75, preset: "Loud" },
+  Punch: {
+    ...masterDefault,
+    low: 3,
+    mid: 1,
+    high: 2,
+    compressor: 55,
+    preset: "Punch",
+  },
+  Warm: {
+    ...masterDefault,
+    low: 4,
+    mid: 2,
+    high: -2,
+    compressor: 35,
+    preset: "Warm",
+  },
+  Loud: {
+    ...masterDefault,
+    low: 2,
+    mid: 1,
+    high: 3,
+    compressor: 75,
+    preset: "Loud",
+  },
 };
-const emptySteps = (length: number): Step[] => Array.from({ length }, () => ({ active: false, velocity: 1 }));
+const emptySteps = (length: number): Step[] =>
+  Array.from({ length }, () => ({ active: false, velocity: 1 }));
 
 function makeTracks(samples: SampleDescriptor[]): Track[] {
-  return starterNames.map((name, index) => ({ id: uid("track"), name, short: name.toUpperCase().replace(" ", "").slice(0, 6), color: COLORS[index], sampleId: samples.find(item => item.variants.includes(starterFiles[index]))?.id ?? samples[index]?.id ?? "", volume: 100, pan: 0, mute: false, solo: false, hotkey: String(index + 1) }));
+  return starterNames.map((name, index) => ({
+    id: uid("track"),
+    name,
+    short: name.toUpperCase().replace(" ", "").slice(0, 6),
+    color: COLORS[index],
+    sampleId:
+      samples.find((item) => item.variants.includes(starterFiles[index]))?.id ??
+      samples[index]?.id ??
+      "",
+    volume: 100,
+    pan: 0,
+    mute: false,
+    solo: false,
+    hotkey: String(index + 1),
+  }));
 }
-function makePattern(tracks: Track[], name = "Beat principal"): Pattern { const preset = rapPreset(0, 16); return { id: uid("pattern"), name, length: 16, bpm: preset.bpm, base: null, steps: Object.fromEntries(tracks.map((track, index) => [track.id, preset.steps[index] ?? emptySteps(16)])) }; }
-function download(blob: Blob, filename: string) { const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; anchor.click(); window.setTimeout(() => URL.revokeObjectURL(url), 0); }
+function makePattern(
+  tracks: Track[],
+  melodicTracks: MelodicTrack[],
+  name = "Beat principal",
+): Pattern {
+  const preset = rapPreset(0, 16);
+  return {
+    id: uid("pattern"),
+    name,
+    length: 16,
+    bpm: preset.bpm,
+    base: null,
+    steps: Object.fromEntries(
+      tracks.map((track, index) => [
+        track.id,
+        preset.steps[index] ?? emptySteps(16),
+      ]),
+    ),
+    melodicNotes: Object.fromEntries(
+      melodicTracks.map((track) => [track.id, []]),
+    ),
+    assist: defaultAssist(),
+  };
+}
+function download(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
 
 export default function App() {
-  const [samples, setSamples] = useState<SampleDescriptor[]>([]); const [catalogState, setCatalogState] = useState("Carregando catálogo");
-  const [tracks, setTracks] = useState<Track[]>([]); const [patterns, setPatterns] = useState<Pattern[]>([]); const [clips, setClips] = useState<{ id: string; patternId: string; repeats: number }[]>([]);
-  const [selectedPattern, setSelectedPattern] = useState(0); const [selectedTrackId, setSelectedTrackId] = useState(""); const [mode, setMode] = useState<"pattern" | "song">("pattern");
-  const [bpm, setBpm] = useState(100); const [swing, setSwing] = useState(0); const [master, setMaster] = useState(masterDefault); const [playing, setPlaying] = useState(false); const [currentStep, setCurrentStep] = useState(-1); const [basesEnabled, setBasesEnabled] = useState(true);
-  const [libraryOpen, setLibraryOpen] = useState(false); const [mixerOpen, setMixerOpen] = useState(false); const [projectsOpen, setProjectsOpen] = useState(false); const [query, setQuery] = useState(""); const [pack, setPack] = useState("Todos");
-  const [projectId, setProjectId] = useState(uid("project")); const [projectName, setProjectName] = useState("Meu beat"); const [savedProjects, setSavedProjects] = useState<StudioProject[]>([]); const [status, setStatus] = useState("Áudio pronto para iniciar"); const [activeGroove, setActiveGroove] = useState("Beat inicial");
-  const engine = useRef(new AudioEngine()); const timer = useRef<number | null>(null); const transportPosition = useRef(-1); const transportStartedAt = useRef(0); const pausedOffset = useRef(0); const lastRapPreset = useRef(-1); const lastBaseId = useRef<string | null>(null); const timelineRef = useRef<Array<{ pattern: Pattern; step: number; offset: number }>>([]); const nextTimelineEvent = useRef(0); const transportRun = useRef(0);
+  const [samples, setSamples] = useState<SampleDescriptor[]>([]);
+  const [catalogState, setCatalogState] = useState("Carregando catálogo");
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [patterns, setPatterns] = useState<Pattern[]>([]);
+  const [clips, setClips] = useState<
+    { id: string; patternId: string; repeats: number }[]
+  >([]);
+  const [melodicTracks, setMelodicTracks] = useState<MelodicTrack[]>([]);
+  const [selectedMelodicTrackId, setSelectedMelodicTrackId] = useState("");
+  const [workspace, setWorkspace] = useState<"drums" | "keyboard">("drums");
+  const [selectedPattern, setSelectedPattern] = useState(0);
+  const [selectedTrackId, setSelectedTrackId] = useState("");
+  const [mode, setMode] = useState<"pattern" | "song">("pattern");
+  const [bpm, setBpm] = useState(100);
+  const [swing, setSwing] = useState(0);
+  const [master, setMaster] = useState(masterDefault);
+  const [playing, setPlaying] = useState(false);
+  const [currentStep, setCurrentStep] = useState(-1);
+  const [basesEnabled, setBasesEnabled] = useState(true);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [mixerOpen, setMixerOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [pack, setPack] = useState("Todos");
+  const [projectId, setProjectId] = useState(uid("project"));
+  const [projectName, setProjectName] = useState("Meu beat");
+  const [savedProjects, setSavedProjects] = useState<StudioProject[]>([]);
+  const [status, setStatus] = useState("Áudio pronto para iniciar");
+  const [activeGroove, setActiveGroove] = useState("Beat inicial");
+  const engine = useRef(new AudioEngine());
+  const timer = useRef<number | null>(null);
+  const transportPosition = useRef(-1);
+  const transportStartedAt = useRef(0);
+  const pausedOffset = useRef(0);
+  const lastRapPreset = useRef(-1);
+  const lastBaseId = useRef<string | null>(null);
+  const timelineRef = useRef<
+    Array<{ pattern: Pattern; step: number; offset: number }>
+  >([]);
+  const nextTimelineEvent = useRef(0);
+  const transportRun = useRef(0);
   const pattern = patterns[selectedPattern];
+  const patternsRef = useRef(patterns);
 
-  useEffect(() => { loadSamples().then(data => { const nextTracks = makeTracks(data.filter(item => item.role !== "musical-base")); const first = makePattern(nextTracks); setSamples(data); setTracks(nextTracks); setSelectedTrackId(nextTracks[0].id); setPatterns([first]); setClips([{ id: uid("clip"), patternId: first.id, repeats: 1 }]); setCatalogState(`${data.length} sons · ${data.filter(item => item.role === "musical-base" && approvedBoomBapBaseIds.has(item.id)).length} bases revisadas`); }).catch(() => setCatalogState("Catálogo indisponível")); setSavedProjects(listProjects()); }, []);
-  useEffect(() => () => { if (timer.current !== null) window.clearInterval(timer.current); void engine.current.close(); }, []);
-  useEffect(() => { engine.current.applyMaster(master); }, [master]);
-  useEffect(() => { const handler = (event: KeyboardEvent) => { if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return; if (event.code === "Space") { event.preventDefault(); playing ? pause() : void start(); } const index = Number(event.key) - 1; if (index >= 0 && index < 8 && tracks[index]) void triggerTrack(tracks[index], 1); }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); });
+  useEffect(() => {
+    loadSamples()
+      .then((data) => {
+        const nextTracks = makeTracks(
+          data.filter((item) => item.role !== "musical-base"),
+        );
+        const nextMelodic = makeMelodicTracks();
+        const first = makePattern(nextTracks, nextMelodic);
+        setSamples(data);
+        setTracks(nextTracks);
+        setMelodicTracks(nextMelodic);
+        setSelectedTrackId(nextTracks[0].id);
+        setSelectedMelodicTrackId(nextMelodic[0].id);
+        setPatterns([first]);
+        setClips([{ id: uid("clip"), patternId: first.id, repeats: 1 }]);
+        setCatalogState(
+          `${data.length} sons · ${data.filter((item) => item.role === "musical-base" && approvedBoomBapBaseIds.has(item.id)).length} bases revisadas`,
+        );
+      })
+      .catch(() => setCatalogState("Catálogo indisponível"));
+    setSavedProjects(listProjects());
+  }, []);
+  useEffect(
+    () => () => {
+      if (timer.current !== null) window.clearInterval(timer.current);
+      void engine.current.close();
+    },
+    [],
+  );
+  useEffect(() => {
+    engine.current.applyMaster(master);
+  }, [master]);
+  useEffect(() => {
+    patternsRef.current = patterns;
+  }, [patterns]);
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLSelectElement
+      )
+        return;
+      if (event.code === "Space") {
+        event.preventDefault();
+        playing ? pause() : void start();
+      }
+      if (workspace === "drums") {
+        const index = Number(event.key) - 1;
+        if (index >= 0 && index < 8 && tracks[index])
+          void triggerTrack(tracks[index], 1);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  });
 
   const unlock = async () => engine.current.unlock(master);
-  const bufferFor = async (sampleId: string) => { const sample = samples.find(item => item.id === sampleId); if (!sample) throw new Error("Sample não encontrado"); return engine.current.bufferFor(sample, master); };
-  const baseSamples = useMemo(() => samples.filter(item => item.role === "musical-base" && item.musical?.instrumental && approvedBoomBapBaseIds.has(item.id) && item.musical.quality !== "quarantine"), [samples]);
-  const selectedBase = baseSamples.find(item => item.id === pattern.base?.sampleId);
-  const patternSeconds = (item: Pattern) => item.length * 60 / (item.bpm ?? bpm) / 4;
+  const bufferFor = async (sampleId: string) => {
+    const sample = samples.find((item) => item.id === sampleId);
+    if (!sample) throw new Error("Sample não encontrado");
+    return engine.current.bufferFor(sample, master);
+  };
+  const baseSamples = useMemo(
+    () =>
+      samples.filter(
+        (item) =>
+          item.role === "musical-base" &&
+          item.musical?.instrumental &&
+          approvedBoomBapBaseIds.has(item.id) &&
+          item.musical.quality !== "quarantine",
+      ),
+    [samples],
+  );
+  const selectedBase = baseSamples.find(
+    (item) => item.id === pattern.base?.sampleId,
+  );
+  const patternSeconds = (item: Pattern) =>
+    (item.length * 60) / (item.bpm ?? bpm) / 4;
   const timelineFor = () => {
-    const sequence = mode === "song" ? clips.flatMap(clip => { const item = patterns.find(candidate => candidate.id === clip.patternId); return item ? Array.from({ length: clip.repeats }, () => item) : []; }) : pattern ? [pattern] : [];
-    const events: Array<{ pattern: Pattern; step: number; offset: number }> = []; let offset = 0;
-    sequence.forEach(item => { for (let step = 0; step < item.length; step++) { events.push({ pattern: item, step, offset }); offset += 60 / (item.bpm ?? bpm) / 4; } });
+    const sequence =
+      mode === "song"
+        ? clips.flatMap((clip) => {
+            const item = patterns.find(
+              (candidate) => candidate.id === clip.patternId,
+            );
+            return item ? Array.from({ length: clip.repeats }, () => item) : [];
+          })
+        : pattern
+          ? [pattern]
+          : [];
+    const events: Array<{ pattern: Pattern; step: number; offset: number }> =
+      [];
+    let offset = 0;
+    sequence.forEach((item) => {
+      for (let step = 0; step < item.length; step++) {
+        events.push({ pattern: item, step, offset });
+        offset += 60 / (item.bpm ?? bpm) / 4;
+      }
+    });
     return { events, total: offset, sequence };
   };
   const usedSamplesFor = (sequence: Pattern[]) => {
-    const ids = new Set<string>(); sequence.forEach(item => { tracks.forEach(track => { if (item.steps[track.id]?.some(step => step.active)) ids.add(track.sampleId); }); if (item.base?.sampleId) ids.add(item.base.sampleId); });
-    return [...ids].map(id => samples.find(item => item.id === id)).filter((item): item is SampleDescriptor => Boolean(item));
+    const ids = new Set<string>();
+    sequence.forEach((item) => {
+      tracks.forEach((track) => {
+        if (item.steps[track.id]?.some((step) => step.active))
+          ids.add(track.sampleId);
+      });
+      if (item.base?.sampleId) ids.add(item.base.sampleId);
+    });
+    return [...ids]
+      .map((id) => samples.find((item) => item.id === id))
+      .filter((item): item is SampleDescriptor => Boolean(item));
   };
-  const startBases = async (sequence: Pattern[], total: number, startOffset: number, when: number, token: number) => {
+  const usedInstrumentsFor = (sequence: Pattern[]) =>
+    melodicTracks
+      .filter((track) =>
+        sequence.some((item) => item.melodicNotes?.[track.id]?.length),
+      )
+      .map((track) => instrumentById[track.instrumentId])
+      .filter(Boolean);
+  const startBases = async (
+    sequence: Pattern[],
+    total: number,
+    startOffset: number,
+    when: number,
+    token: number,
+  ) => {
     if (!engine.current.context || !total) return;
-    const segments: Array<{ sample: SampleDescriptor; start: number; end: number; volume: number }> = [];
+    const segments: Array<{
+      sample: SampleDescriptor;
+      start: number;
+      end: number;
+      volume: number;
+    }> = [];
     let cursor = 0;
-    sequence.forEach(item => { const base = item.base?.sampleId ? baseSamples.find(candidate => candidate.id === item.base?.sampleId) : undefined; const duration = patternSeconds(item); if (base && !item.base?.muted) { const last = segments[segments.length - 1]; if (last && last.sample.id === base.id && last.volume === (item.base?.volume ?? 68)) last.end += duration; else segments.push({ sample: base, start: cursor, end: cursor + duration, volume: item.base?.volume ?? base.musical?.recommendedVolume ?? 32 }); } cursor += duration; });
+    sequence.forEach((item) => {
+      const base = item.base?.sampleId
+        ? baseSamples.find((candidate) => candidate.id === item.base?.sampleId)
+        : undefined;
+      const duration = patternSeconds(item);
+      if (base && !item.base?.muted) {
+        const last = segments[segments.length - 1];
+        if (
+          last &&
+          last.sample.id === base.id &&
+          last.volume === (item.base?.volume ?? 68)
+        )
+          last.end += duration;
+        else
+          segments.push({
+            sample: base,
+            start: cursor,
+            end: cursor + duration,
+            volume: item.base?.volume ?? base.musical?.recommendedVolume ?? 32,
+          });
+      }
+      cursor += duration;
+    });
     const patternBase = pattern.base;
-    if (mode === "pattern" && selectedBase && patternBase && !patternBase.muted) { try { await engine.current.startLoop(selectedBase, patternBase.volume ?? selectedBase.musical?.recommendedVolume ?? 32, when, master, token, undefined, startOffset); } catch {} return; }
-    for (const segment of segments) { if (segment.end <= startOffset) continue; const localOffset = Math.max(0, startOffset - segment.start); const startAt = when + Math.max(0, segment.start - startOffset); try { await engine.current.startLoop(segment.sample, segment.volume, startAt, master, token, segment.end - Math.max(startOffset, segment.start), localOffset); } catch {} }
+    if (
+      mode === "pattern" &&
+      selectedBase &&
+      patternBase &&
+      !patternBase.muted
+    ) {
+      try {
+        await engine.current.startLoop(
+          selectedBase,
+          patternBase.volume ?? selectedBase.musical?.recommendedVolume ?? 32,
+          when,
+          master,
+          token,
+          undefined,
+          startOffset,
+        );
+      } catch {}
+      return;
+    }
+    for (const segment of segments) {
+      if (segment.end <= startOffset) continue;
+      const localOffset = Math.max(0, startOffset - segment.start);
+      const startAt = when + Math.max(0, segment.start - startOffset);
+      try {
+        await engine.current.startLoop(
+          segment.sample,
+          segment.volume,
+          startAt,
+          master,
+          token,
+          segment.end - Math.max(startOffset, segment.start),
+          localOffset,
+        );
+      } catch {}
+    }
   };
-  const assignBase = async (base: SampleDescriptor) => { if (!base.musical) return; stop(); updatePattern(item => ({ ...item, bpm: base.musical!.bpm, base: { sampleId: base.id, volume: item.base?.volume ?? base.musical?.recommendedVolume ?? 32, muted: false } })); setBpm(base.musical.bpm); setStatus(`${base.name} selecionada · ${base.musical.bpm} BPM`); try { await unlock(); await bufferFor(base.id); } catch { setStatus(`Base indisponível: ${base.name}`); } };
-  const removeBase = () => { stop(); updatePattern(item => ({ ...item, base: null })); setStatus("Base musical removida"); };
-  const audible = (track: Track) => !track.mute && (!tracks.some(item => item.solo) || track.solo);
-  const triggerTrack = async (track: Track, velocity = 1, when?: number, token = engine.current.token()) => { if (!audible(track)) return; const sample = samples.find(item => item.id === track.sampleId); if (!sample || !engine.current.isAvailable(sample.id)) return; try { await engine.current.startOneShot(sample, track.volume, track.pan, when ?? engine.current.context?.currentTime ?? 0, master, token, velocity); } catch {} };
-  const previewSample = async (sample: SampleDescriptor) => { try { await unlock(); await engine.current.preview(sample, master, setStatus); } catch { setStatus("Não foi possível pré-escutar o sample"); } };
+  const assignBase = async (base: SampleDescriptor) => {
+    if (!base.musical) return;
+    stop();
+    updatePattern((item) => {
+      const root = rootFromKey(base.musical?.key);
+      return {
+        ...item,
+        bpm: base.musical!.bpm,
+        base: {
+          sampleId: base.id,
+          volume: item.base?.volume ?? base.musical?.recommendedVolume ?? 32,
+          muted: false,
+        },
+        assist:
+          root === null || item.assist?.keySource === "manual"
+            ? (item.assist ?? defaultAssist())
+            : {
+                ...(item.assist ?? defaultAssist()),
+                root,
+                keySource: "automatic",
+              },
+      };
+    });
+    setBpm(base.musical.bpm);
+    setStatus(`${base.name} selecionada · ${base.musical.bpm} BPM`);
+    try {
+      await unlock();
+      await bufferFor(base.id);
+    } catch {
+      setStatus(`Base indisponível: ${base.name}`);
+    }
+  };
+  const removeBase = () => {
+    stop();
+    updatePattern((item) => ({ ...item, base: null }));
+    setStatus("Base musical removida");
+  };
+  const audible = (track: Track) =>
+    !track.mute && (!tracks.some((item) => item.solo) || track.solo);
+  const triggerTrack = async (
+    track: Track,
+    velocity = 1,
+    when?: number,
+    token = engine.current.token(),
+  ) => {
+    if (!audible(track)) return;
+    const sample = samples.find((item) => item.id === track.sampleId);
+    if (!sample || !engine.current.isAvailable(sample.id)) return;
+    try {
+      await engine.current.startOneShot(
+        sample,
+        track.volume,
+        track.pan,
+        when ?? engine.current.context?.currentTime ?? 0,
+        master,
+        token,
+        velocity,
+      );
+    } catch {}
+  };
+  const triggerMelodicNotes = (
+    event: { pattern: Pattern; step: number },
+    when: number,
+    token: number,
+    eventId: number,
+  ) => {
+    const livePattern =
+      patternsRef.current.find((item) => item.id === event.pattern.id) ??
+      event.pattern;
+    const stepStart = event.step * TICKS_PER_STEP;
+    const stepEnd = stepStart + TICKS_PER_STEP;
+    const noteSolo = melodicTracks.some((item) => item.solo);
+    const eventBpm = livePattern.bpm ?? bpm;
+    melodicTracks.forEach((track) => {
+      if (track.mute || (noteSolo && !track.solo)) return;
+      const instrument = instrumentById[track.instrumentId];
+      if (!instrument) return;
+      livePattern.melodicNotes?.[track.id]
+        ?.filter(
+          (note) => note.startTick >= stepStart && note.startTick < stepEnd,
+        )
+        .forEach((note) => {
+          const noteWhen =
+            when + (((note.startTick - stepStart) / 96) * 60) / eventBpm;
+          const duration = Math.max(
+            0.02,
+            ((note.durationTicks / 96) * 60) / eventBpm,
+          );
+          void engine.current.startInstrumentVoice(
+            instrument,
+            note.note,
+            note.velocity,
+            track.volume,
+            track.pan,
+            noteWhen,
+            master,
+            token,
+            `seq-${token}-${eventId}-${track.id}-${note.id}`,
+            duration,
+          );
+        });
+    });
+  };
+  const previewSample = async (sample: SampleDescriptor) => {
+    try {
+      await unlock();
+      await engine.current.preview(sample, master, setStatus);
+    } catch {
+      setStatus("Não foi possível pré-escutar o sample");
+    }
+  };
   const scheduleTransport = (offset: number, token: number) => {
-    const timeline = timelineFor(); timelineRef.current = timeline.events; nextTimelineEvent.current = Math.max(0, timeline.events.findIndex(event => event.offset >= offset)); if (mode === "pattern" && offset >= timeline.total) nextTimelineEvent.current = 0;
-    const context = engine.current.context!; transportStartedAt.current = context.currentTime - offset; const horizon = .1;
-    const tick = () => { if (!engine.current.context || token !== engine.current.token()) return; const now = context.currentTime; const elapsed = now - transportStartedAt.current; while (timeline.events.length && (mode === "pattern" || nextTimelineEvent.current < timeline.events.length)) { const index = nextTimelineEvent.current; const cycle = mode === "pattern" ? Math.floor(index / timeline.events.length) : 0; const event = timeline.events[index % timeline.events.length]; const eventOffset = event.offset + cycle * timeline.total; const when = transportStartedAt.current + eventOffset; if (when > now + horizon) break; if (when >= now - .05) { setCurrentStep(event.step); tracks.forEach(track => { const item = event.pattern.steps[track.id]?.[event.step]; if (item?.active) { const stepSeconds = 60 / (event.pattern.bpm ?? bpm) / 4; const swingDelay = event.step % 2 === 1 ? stepSeconds / 3 * (swing / 60) : 0; void triggerTrack(track, item.velocity, when + swingDelay, token); } }); } nextTimelineEvent.current += 1; }
-      if (mode === "song" && nextTimelineEvent.current >= timeline.events.length && elapsed >= timeline.total) { if (timer.current !== null) window.clearInterval(timer.current); timer.current = null; engine.current.stopAll(); setPlaying(false); setCurrentStep(-1); setStatus("Música concluída"); return; }
-      const position = mode === "pattern" && timeline.total ? elapsed % timeline.total : elapsed; const currentEvent = timeline.events.reduce((candidate, item, index) => item.offset <= position ? index : candidate, -1); if (currentEvent >= 0) setCurrentStep(timeline.events[currentEvent].step);
+    const timeline = timelineFor();
+    timelineRef.current = timeline.events;
+    nextTimelineEvent.current = Math.max(
+      0,
+      timeline.events.findIndex((event) => event.offset >= offset),
+    );
+    if (mode === "pattern" && offset >= timeline.total)
+      nextTimelineEvent.current = 0;
+    const context = engine.current.context!;
+    transportStartedAt.current = context.currentTime - offset;
+    const horizon = 0.1;
+    const tick = () => {
+      if (!engine.current.context || token !== engine.current.token()) return;
+      const now = context.currentTime;
+      const elapsed = now - transportStartedAt.current;
+      while (
+        timeline.events.length &&
+        (mode === "pattern" ||
+          nextTimelineEvent.current < timeline.events.length)
+      ) {
+        const index = nextTimelineEvent.current;
+        const cycle =
+          mode === "pattern" ? Math.floor(index / timeline.events.length) : 0;
+        const event = timeline.events[index % timeline.events.length];
+        const eventOffset = event.offset + cycle * timeline.total;
+        const when = transportStartedAt.current + eventOffset;
+        if (when > now + horizon) break;
+        if (when >= now - 0.05) {
+          setCurrentStep(event.step);
+          tracks.forEach((track) => {
+            const item = event.pattern.steps[track.id]?.[event.step];
+            if (item?.active) {
+              const stepSeconds = 60 / (event.pattern.bpm ?? bpm) / 4;
+              const swingDelay =
+                event.step % 2 === 1 ? (stepSeconds / 3) * (swing / 60) : 0;
+              void triggerTrack(track, item.velocity, when + swingDelay, token);
+            }
+          });
+          triggerMelodicNotes(event, when, token, index);
+        }
+        nextTimelineEvent.current += 1;
+      }
+      if (
+        mode === "song" &&
+        nextTimelineEvent.current >= timeline.events.length &&
+        elapsed >= timeline.total
+      ) {
+        if (timer.current !== null) window.clearInterval(timer.current);
+        timer.current = null;
+        engine.current.stopAll();
+        setPlaying(false);
+        setCurrentStep(-1);
+        setStatus("Música concluída");
+        return;
+      }
+      const position =
+        mode === "pattern" && timeline.total
+          ? elapsed % timeline.total
+          : elapsed;
+      const currentEvent = timeline.events.reduce(
+        (candidate, item, index) =>
+          item.offset <= position ? index : candidate,
+        -1,
+      );
+      if (currentEvent >= 0) setCurrentStep(timeline.events[currentEvent].step);
     };
-    tick(); timer.current = window.setInterval(tick, 25);
+    tick();
+    timer.current = window.setInterval(tick, 25);
   };
-  const start = async (force = false) => { if (playing && !force) return; const timeline = timelineFor(); if (!timeline.events.length) return; const run = transportRun.current + 1; transportRun.current = run; setStatus("Carregando áudio..."); try { await unlock(); await engine.current.preload(usedSamplesFor(timeline.sequence), master); if (run !== transportRun.current) return; engine.current.stopAll(); const token = engine.current.token(); const startOffset = mode === "pattern" ? pausedOffset.current % timeline.total : Math.min(pausedOffset.current, timeline.total); const when = engine.current.context!.currentTime + .03; await startBases(timeline.sequence, timeline.total, startOffset, when, token); if (run !== transportRun.current) return; setPlaying(true); setStatus(mode === "song" ? "Música em reprodução" : "Groove em reprodução"); scheduleTransport(startOffset, token); } catch (error) { if (run === transportRun.current) { setPlaying(false); setStatus(`Não foi possível carregar o áudio${error instanceof Error ? `: ${error.message}` : ""}`); } } };
-  const pause = () => { if (!playing || !engine.current.context) return; pausedOffset.current = Math.max(0, engine.current.context.currentTime - transportStartedAt.current); const timeline = timelineFor(); if (mode === "pattern" && timeline.total) pausedOffset.current %= timeline.total; if (timer.current !== null) window.clearInterval(timer.current); timer.current = null; transportRun.current += 1; engine.current.stopAll(); setPlaying(false); setStatus(mode === "song" ? "Música pausada" : "Groove pausado"); };
-  const stop = () => { transportRun.current += 1; if (timer.current !== null) window.clearInterval(timer.current); timer.current = null; pausedOffset.current = 0; transportPosition.current = -1; setCurrentStep(-1); setPlaying(false); engine.current.stopAll(); setStatus("Parado no início"); };
-  const playbackSignature = useMemo(() => JSON.stringify({ mode, bpm, swing, selectedPattern, patterns, tracks, clips }), [mode, bpm, swing, selectedPattern, patterns, tracks, clips]);
+  const start = async (force = false) => {
+    if (playing && !force) return;
+    const timeline = timelineFor();
+    if (!timeline.events.length) return;
+    const run = transportRun.current + 1;
+    transportRun.current = run;
+    setStatus("Carregando áudio...");
+    try {
+      await unlock();
+      await Promise.all([
+        engine.current.preload(usedSamplesFor(timeline.sequence), master),
+        ...usedInstrumentsFor(timeline.sequence).map((instrument) =>
+          engine.current.preloadInstrument(instrument, master),
+        ),
+      ]);
+      if (run !== transportRun.current) return;
+      engine.current.stopAll();
+      const token = engine.current.token();
+      const startOffset =
+        mode === "pattern"
+          ? pausedOffset.current % timeline.total
+          : Math.min(pausedOffset.current, timeline.total);
+      const when = engine.current.context!.currentTime + 0.03;
+      await startBases(
+        timeline.sequence,
+        timeline.total,
+        startOffset,
+        when,
+        token,
+      );
+      if (run !== transportRun.current) return;
+      setPlaying(true);
+      setStatus(
+        mode === "song" ? "Música em reprodução" : "Groove em reprodução",
+      );
+      scheduleTransport(startOffset, token);
+      return transportStartedAt.current;
+    } catch (error) {
+      if (run === transportRun.current) {
+        setPlaying(false);
+        setStatus(
+          `Não foi possível carregar o áudio${error instanceof Error ? `: ${error.message}` : ""}`,
+        );
+      }
+    }
+  };
+  const pause = () => {
+    if (!playing || !engine.current.context) return;
+    pausedOffset.current = Math.max(
+      0,
+      engine.current.context.currentTime - transportStartedAt.current,
+    );
+    const timeline = timelineFor();
+    if (mode === "pattern" && timeline.total)
+      pausedOffset.current %= timeline.total;
+    if (timer.current !== null) window.clearInterval(timer.current);
+    timer.current = null;
+    transportRun.current += 1;
+    engine.current.stopAll();
+    setPlaying(false);
+    setStatus(mode === "song" ? "Música pausada" : "Groove pausado");
+  };
+  const stop = () => {
+    transportRun.current += 1;
+    if (timer.current !== null) window.clearInterval(timer.current);
+    timer.current = null;
+    pausedOffset.current = 0;
+    transportPosition.current = -1;
+    setCurrentStep(-1);
+    setPlaying(false);
+    engine.current.stopAll();
+    setStatus("Parado no início");
+  };
+  const playbackSignature = useMemo(
+    () =>
+      JSON.stringify({
+        mode,
+        bpm,
+        swing,
+        selectedPattern,
+        patterns: patterns.map(
+          ({ melodicNotes: _melodicNotes, assist: _assist, ...item }) => item,
+        ),
+        tracks,
+        melodicTracks,
+        clips,
+      }),
+    [mode, bpm, swing, selectedPattern, patterns, tracks, melodicTracks, clips],
+  );
   const previousPlaybackSignature = useRef(playbackSignature);
-  useEffect(() => { if (previousPlaybackSignature.current === playbackSignature) return; const restart = playing; previousPlaybackSignature.current = playbackSignature; if (restart) { stop(); window.setTimeout(() => void start(true), 0); } }, [playbackSignature]);
-  const updatePattern = (change: (item: Pattern) => Pattern) => setPatterns(items => items.map((item, index) => index === selectedPattern ? change(item) : item));
-  const toggleStep = (trackId: string, index: number) => updatePattern(item => ({ ...item, steps: { ...item.steps, [trackId]: item.steps[trackId].map((step, stepIndex) => stepIndex === index ? { ...step, active: !step.active } : step) } }));
-  const clearPattern = () => updatePattern(item => ({ ...item, steps: Object.fromEntries(tracks.map(track => [track.id, emptySteps(item.length)])) }));
+  useEffect(() => {
+    if (previousPlaybackSignature.current === playbackSignature) return;
+    const restart = playing;
+    previousPlaybackSignature.current = playbackSignature;
+    if (restart) {
+      stop();
+      window.setTimeout(() => void start(true), 0);
+    }
+  }, [playbackSignature]);
+  const updatePattern = (change: (item: Pattern) => Pattern) =>
+    setPatterns((items) =>
+      items.map((item, index) =>
+        index === selectedPattern ? change(item) : item,
+      ),
+    );
+  const toggleStep = (trackId: string, index: number) =>
+    updatePattern((item) => ({
+      ...item,
+      steps: {
+        ...item.steps,
+        [trackId]: item.steps[trackId].map((step, stepIndex) =>
+          stepIndex === index ? { ...step, active: !step.active } : step,
+        ),
+      },
+    }));
+  const clearPattern = () =>
+    updatePattern((item) => ({
+      ...item,
+      steps: Object.fromEntries(
+        tracks.map((track) => [track.id, emptySteps(item.length)]),
+      ),
+    }));
   const randomize = () => {
     let index = Math.floor(Math.random() * rapPresetCount);
-    if (rapPresetCount > 1 && index === lastRapPreset.current) index = (index + 1) % rapPresetCount;
+    if (rapPresetCount > 1 && index === lastRapPreset.current)
+      index = (index + 1) % rapPresetCount;
     lastRapPreset.current = index;
     const groove = rapPreset(index, pattern.length);
     const pool = presetBasePools[groove.id] ?? [];
-    const candidates = basesEnabled ? baseSamples.filter(item => pool.includes(item.id) && item.id !== lastBaseId.current) : [];
-    const base = candidates.length ? candidates[Math.floor(Math.random() * candidates.length)] : undefined;
+    const candidates = basesEnabled
+      ? baseSamples.filter(
+          (item) => pool.includes(item.id) && item.id !== lastBaseId.current,
+        )
+      : [];
+    const base = candidates.length
+      ? candidates[Math.floor(Math.random() * candidates.length)]
+      : undefined;
     if (base) lastBaseId.current = base.id;
-    updatePattern(item => ({ ...item, bpm: base?.musical?.bpm ?? groove.bpm, base: base ? { sampleId: base.id, volume: base.musical?.recommendedVolume ?? item.base?.volume ?? 32, muted: false } : item.base ?? null, steps: Object.fromEntries(tracks.map((track, lane) => [track.id, lane < groove.steps.length ? groove.steps[lane] : item.steps[track.id] ?? emptySteps(item.length)])) }));
+    updatePattern((item) => ({
+      ...item,
+      bpm: base?.musical?.bpm ?? groove.bpm,
+      base: base
+        ? {
+            sampleId: base.id,
+            volume: base.musical?.recommendedVolume ?? item.base?.volume ?? 32,
+            muted: false,
+          }
+        : (item.base ?? null),
+      steps: Object.fromEntries(
+        tracks.map((track, lane) => [
+          track.id,
+          lane < groove.steps.length
+            ? groove.steps[lane]
+            : (item.steps[track.id] ?? emptySteps(item.length)),
+        ]),
+      ),
+    }));
     setBpm(groove.bpm);
     setSwing(groove.swing);
     setMaster(masterPresets[groove.master] ?? masterDefault);
     setActiveGroove(groove.name);
     if (base?.musical) setBpm(base.musical.bpm);
-    setStatus(`Preset rap: ${groove.name}${base ? ` + ${base.name}` : ""} · ${base?.musical?.bpm ?? groove.bpm} BPM`);
+    setStatus(
+      `Preset rap: ${groove.name}${base ? ` + ${base.name}` : ""} · ${base?.musical?.bpm ?? groove.bpm} BPM`,
+    );
   };
-  const resize = (length: 16 | 32 | 64) => updatePattern(item => ({ ...item, length, steps: Object.fromEntries(tracks.map(track => [track.id, Array.from({ length }, (_, index) => item.steps[track.id]?.[index] ?? { active: false, velocity: 1 })])) }));
-  const updateTrack = (id: string, change: Partial<Track>) => setTracks(items => items.map(item => item.id === id ? { ...item, ...change } : item));
-  const addTrack = () => { if (tracks.length >= 16) return; const track: Track = { id: uid("track"), name: `Linha ${tracks.length + 1}`, short: "SAMPLE", color: COLORS[tracks.length], sampleId: samples[0]?.id ?? "", volume: 100, pan: 0, mute: false, solo: false, hotkey: tracks.length < 8 ? String(tracks.length + 1) : undefined }; setTracks(items => [...items, track]); setSelectedTrackId(track.id); setPatterns(items => items.map(item => ({ ...item, steps: { ...item.steps, [track.id]: emptySteps(item.length) } }))); };
-  const duplicateTrack = (source: Track) => { if (tracks.length >= 16) return; const track = { ...source, id: uid("track"), name: `${source.name} cópia`, hotkey: undefined }; setTracks(items => [...items, track]); setPatterns(items => items.map(item => ({ ...item, steps: { ...item.steps, [track.id]: item.steps[source.id].map(step => ({ ...step })) } }))); setSelectedTrackId(track.id); };
-  const removeTrack = (id: string) => { if (tracks.length <= 1) return; setTracks(items => items.filter(item => item.id !== id)); setPatterns(items => items.map(item => { const next = { ...item.steps }; delete next[id]; return { ...item, steps: next }; })); if (selectedTrackId === id) setSelectedTrackId(tracks.find(item => item.id !== id)?.id ?? ""); };
-  const addPattern = () => { if (patterns.length >= 16) return; const next = makePattern(tracks, `Pattern ${patterns.length + 1}`); setPatterns(items => [...items, next]); setClips(items => [...items, { id: uid("clip"), patternId: next.id, repeats: 1 }]); setSelectedPattern(patterns.length); };
-  const duplicatePattern = () => { if (!pattern || patterns.length >= 16) return; const next: Pattern = { ...pattern, id: uid("pattern"), name: `${pattern.name} cópia`, steps: Object.fromEntries(Object.entries(pattern.steps).map(([id, values]) => [id, values.map(step => ({ ...step }))])) }; setPatterns(items => [...items, next]); setClips(items => [...items, { id: uid("clip"), patternId: next.id, repeats: 1 }]); setSelectedPattern(patterns.length); };
-  const deletePattern = () => { if (!pattern || patterns.length <= 1) return; const removed = pattern.id; setPatterns(items => items.filter(item => item.id !== removed)); setClips(items => { const next = items.filter(item => item.patternId !== removed); return next.length ? next : [{ id: uid("clip"), patternId: patterns.find(item => item.id !== removed)!.id, repeats: 1 }]; }); setSelectedPattern(Math.max(0, selectedPattern - 1)); };
-  const asProject = (): StudioProjectV2 => ({ version: 2, id: projectId, name: projectName.trim() || "Meu beat", bpm, swing, tracks, patterns, arrangement: clips, master, updatedAt: new Date().toISOString() });
-  const save = () => { const current = asProject(); saveProject(current); setSavedProjects(listProjects()); setStatus("Projeto salvo localmente"); };
-  const loadProject = (project: StudioProject) => { stop(); setProjectId(project.id); setProjectName(project.name); setBpm(project.bpm); setSwing(project.swing); setTracks(project.tracks); setPatterns(project.patterns.map(item => ({ ...item, bpm: item.bpm ?? project.bpm, base: item.base ?? null }))); setClips(project.arrangement); setMaster(project.master); setSelectedPattern(0); setSelectedTrackId(project.tracks[0]?.id ?? ""); setProjectsOpen(false); setStatus(`Projeto ${project.name} aberto`); };
-  const duplicateProject = (project: StudioProject) => { const copy = { ...project, id: uid("project"), name: `${project.name} cópia`, updatedAt: new Date().toISOString() }; saveProject(copy); setSavedProjects(listProjects()); };
-  const exportProject = () => { download(new Blob([JSON.stringify(asProject(), null, 2)], { type: "application/json" }), `${projectName || "batidao"}.json`); setStatus("Projeto JSON exportado"); };
-  const importProject = async (file: File) => { try { const data = JSON.parse(await file.text()) as StudioProject; if (![1, 2].includes(data.version) || !Array.isArray(data.tracks) || !Array.isArray(data.patterns)) throw new Error("Arquivo inválido"); loadProject({ ...data, version: 2, id: uid("project"), patterns: data.patterns.map(item => ({ ...item, bpm: item.bpm ?? data.bpm, base: item.base ?? null })) } as StudioProjectV2); setStatus("Projeto importado"); } catch { setStatus("Não foi possível importar o projeto"); } };
-  const exportAudio = async () => { try { setStatus("Preparando WAV..."); await engine.current.preload(usedSamplesFor(patterns), master); download(await exportWav(asProject(), engine.current.getBuffers(), Object.fromEntries(samples.map(sample => [sample.id, sample]))), `${projectName || "batidao"}.wav`); setStatus("WAV exportado"); } catch { setStatus("Não foi possível exportar o WAV"); } };
-  const applyPreset = (preset: string) => setMaster(preset === "Personalizado" ? { ...master, preset } : masterPresets[preset]);
-  const filtered = useMemo(() => samples.filter(sample => (pack === "Todos" || sample.packName === pack) && `${sample.name} ${sample.category} ${sample.kind} ${sample.packName}`.toLowerCase().includes(query.toLowerCase())), [samples, pack, query]);
-  if (!pattern) return <div className="app"><main className="shell">Carregando estúdio...</main></div>;
+  const resize = (length: 16 | 32 | 64) =>
+    updatePattern((item) => ({
+      ...item,
+      length,
+      steps: Object.fromEntries(
+        tracks.map((track) => [
+          track.id,
+          Array.from(
+            { length },
+            (_, index) =>
+              item.steps[track.id]?.[index] ?? { active: false, velocity: 1 },
+          ),
+        ]),
+      ),
+      melodicNotes: Object.fromEntries(
+        melodicTracks.map((track) => [
+          track.id,
+          (item.melodicNotes?.[track.id] ?? [])
+            .filter((note) => note.startTick < loopTicks(length))
+            .map((note) => ({
+              ...note,
+              durationTicks: Math.min(
+                note.durationTicks,
+                loopTicks(length) - note.startTick,
+              ),
+            })),
+        ]),
+      ),
+    }));
+  const updateTrack = (id: string, change: Partial<Track>) =>
+    setTracks((items) =>
+      items.map((item) => (item.id === id ? { ...item, ...change } : item)),
+    );
+  const addTrack = () => {
+    if (tracks.length >= 16) return;
+    const track: Track = {
+      id: uid("track"),
+      name: `Linha ${tracks.length + 1}`,
+      short: "SAMPLE",
+      color: COLORS[tracks.length],
+      sampleId: samples[0]?.id ?? "",
+      volume: 100,
+      pan: 0,
+      mute: false,
+      solo: false,
+      hotkey: tracks.length < 8 ? String(tracks.length + 1) : undefined,
+    };
+    setTracks((items) => [...items, track]);
+    setSelectedTrackId(track.id);
+    setPatterns((items) =>
+      items.map((item) => ({
+        ...item,
+        steps: { ...item.steps, [track.id]: emptySteps(item.length) },
+      })),
+    );
+  };
+  const duplicateTrack = (source: Track) => {
+    if (tracks.length >= 16) return;
+    const track = {
+      ...source,
+      id: uid("track"),
+      name: `${source.name} cópia`,
+      hotkey: undefined,
+    };
+    setTracks((items) => [...items, track]);
+    setPatterns((items) =>
+      items.map((item) => ({
+        ...item,
+        steps: {
+          ...item.steps,
+          [track.id]: item.steps[source.id].map((step) => ({ ...step })),
+        },
+      })),
+    );
+    setSelectedTrackId(track.id);
+  };
+  const removeTrack = (id: string) => {
+    if (tracks.length <= 1) return;
+    setTracks((items) => items.filter((item) => item.id !== id));
+    setPatterns((items) =>
+      items.map((item) => {
+        const next = { ...item.steps };
+        delete next[id];
+        return { ...item, steps: next };
+      }),
+    );
+    if (selectedTrackId === id)
+      setSelectedTrackId(tracks.find((item) => item.id !== id)?.id ?? "");
+  };
+  const addPattern = () => {
+    if (patterns.length >= 16) return;
+    const next = makePattern(
+      tracks,
+      melodicTracks,
+      `Pattern ${patterns.length + 1}`,
+    );
+    setPatterns((items) => [...items, next]);
+    setClips((items) => [
+      ...items,
+      { id: uid("clip"), patternId: next.id, repeats: 1 },
+    ]);
+    setSelectedPattern(patterns.length);
+  };
+  const duplicatePattern = () => {
+    if (!pattern || patterns.length >= 16) return;
+    const next: Pattern = {
+      ...pattern,
+      id: uid("pattern"),
+      name: `${pattern.name} cópia`,
+      steps: Object.fromEntries(
+        Object.entries(pattern.steps).map(([id, values]) => [
+          id,
+          values.map((step) => ({ ...step })),
+        ]),
+      ),
+      melodicNotes: Object.fromEntries(
+        Object.entries(pattern.melodicNotes ?? {}).map(([id, values]) => [
+          id,
+          values.map((note) => ({ ...note, id: uid("note") })),
+        ]),
+      ),
+      assist: { ...(pattern.assist ?? defaultAssist()) },
+    };
+    setPatterns((items) => [...items, next]);
+    setClips((items) => [
+      ...items,
+      { id: uid("clip"), patternId: next.id, repeats: 1 },
+    ]);
+    setSelectedPattern(patterns.length);
+  };
+  const deletePattern = () => {
+    if (!pattern || patterns.length <= 1) return;
+    const removed = pattern.id;
+    setPatterns((items) => items.filter((item) => item.id !== removed));
+    setClips((items) => {
+      const next = items.filter((item) => item.patternId !== removed);
+      return next.length
+        ? next
+        : [
+            {
+              id: uid("clip"),
+              patternId: patterns.find((item) => item.id !== removed)!.id,
+              repeats: 1,
+            },
+          ];
+    });
+    setSelectedPattern(Math.max(0, selectedPattern - 1));
+  };
+  const asProject = (): StudioProjectV3 => ({
+    version: 3,
+    id: projectId,
+    name: projectName.trim() || "Meu beat",
+    bpm,
+    swing,
+    tracks,
+    melodicTracks,
+    patterns,
+    arrangement: clips,
+    master,
+    updatedAt: new Date().toISOString(),
+  });
+  useEffect(() => {
+    if (!patterns.length || !tracks.length || !melodicTracks.length) return;
+    const autosave = window.setTimeout(() => saveProject(asProject()), 800);
+    return () => window.clearTimeout(autosave);
+  }, [
+    projectId,
+    projectName,
+    bpm,
+    swing,
+    tracks,
+    melodicTracks,
+    patterns,
+    clips,
+    master,
+  ]);
+  const save = () => {
+    const current = asProject();
+    saveProject(current);
+    setSavedProjects(listProjects());
+    setStatus("Projeto salvo localmente");
+  };
+  const loadProject = (project: StudioProject) => {
+    stop();
+    const nextMelodic =
+      project.version === 3 && project.melodicTracks?.length
+        ? project.melodicTracks
+        : makeMelodicTracks();
+    setProjectId(project.id);
+    setProjectName(project.name);
+    setBpm(project.bpm);
+    setSwing(project.swing);
+    setTracks(project.tracks);
+    setMelodicTracks(nextMelodic);
+    setPatterns(
+      project.patterns.map((item) => ({
+        ...item,
+        bpm: item.bpm ?? project.bpm,
+        base: item.base ?? null,
+        melodicNotes: Object.fromEntries(
+          nextMelodic.map((track) => [
+            track.id,
+            item.melodicNotes?.[track.id] ?? [],
+          ]),
+        ),
+        assist: item.assist ?? defaultAssist(),
+      })),
+    );
+    setClips(project.arrangement);
+    setMaster(project.master);
+    setSelectedPattern(0);
+    setSelectedTrackId(project.tracks[0]?.id ?? "");
+    setSelectedMelodicTrackId(nextMelodic[0]?.id ?? "");
+    setProjectsOpen(false);
+    setStatus(`Projeto ${project.name} aberto`);
+  };
+  const duplicateProject = (project: StudioProject) => {
+    const copy = {
+      ...project,
+      id: uid("project"),
+      name: `${project.name} cópia`,
+      updatedAt: new Date().toISOString(),
+    };
+    saveProject(copy);
+    setSavedProjects(listProjects());
+  };
+  const exportProject = () => {
+    download(
+      new Blob([JSON.stringify(asProject(), null, 2)], {
+        type: "application/json",
+      }),
+      `${projectName || "batidao"}.json`,
+    );
+    setStatus("Projeto JSON exportado");
+  };
+  const importProject = async (file: File) => {
+    try {
+      const data = JSON.parse(await file.text()) as StudioProject;
+      if (
+        ![1, 2, 3].includes(data.version) ||
+        !Array.isArray(data.tracks) ||
+        !Array.isArray(data.patterns)
+      )
+        throw new Error("Arquivo inválido");
+      loadProject({ ...data, id: uid("project") } as StudioProject);
+      setStatus("Projeto importado");
+    } catch {
+      setStatus("Não foi possível importar o projeto");
+    }
+  };
+  const exportAudio = async () => {
+    try {
+      setStatus("Preparando WAV...");
+      await Promise.all([
+        engine.current.preload(usedSamplesFor(patterns), master),
+        ...usedInstrumentsFor(patterns).map((instrument) =>
+          engine.current.preloadInstrument(instrument, master),
+        ),
+      ]);
+      download(
+        await exportWav(
+          asProject(),
+          engine.current.getBuffers(),
+          Object.fromEntries(samples.map((sample) => [sample.id, sample])),
+          engine.current.getInstrumentBuffers(),
+          instrumentById,
+        ),
+        `${projectName || "batidao"}.wav`,
+      );
+      setStatus("WAV exportado");
+    } catch {
+      setStatus("Não foi possível exportar o WAV");
+    }
+  };
+  const applyPreset = (preset: string) =>
+    setMaster(
+      preset === "Personalizado"
+        ? { ...master, preset }
+        : masterPresets[preset],
+    );
+  const filtered = useMemo(
+    () =>
+      samples.filter(
+        (sample) =>
+          (pack === "Todos" || sample.packName === pack) &&
+          `${sample.name} ${sample.category} ${sample.kind} ${sample.packName}`
+            .toLowerCase()
+            .includes(query.toLowerCase()),
+      ),
+    [samples, pack, query],
+  );
+  if (!pattern)
+    return (
+      <div className="app">
+        <main className="shell">Carregando estúdio...</main>
+      </div>
+    );
 
-  return <div className="app"><header className="topbar"><div className="brand"><span className="brand-mark">B/</span> BATIDÃO STUDIO</div><div className="top-actions"><span className="top-status"><span className="status-dot" /> {catalogState.toUpperCase()}</span><button onClick={save}>SALVAR</button></div></header><main className="shell">
-    <section className="hero"><div><div className="eyebrow">Studio local · {projectName}</div><h1>Crie seu beat,<br /><span>do zero ao groove.</span></h1></div><p className="hero-copy">Todos os controles abaixo alteram o projeto ou o som que está tocando.</p></section>
-    <div className="studio-tabs"><button className={mode === "pattern" ? "selected" : ""} onClick={() => setMode("pattern")}>PATTERN</button><button className={mode === "song" ? "selected" : ""} onClick={() => setMode("song")}>MÚSICA</button><input aria-label="Nome do projeto" value={projectName} onChange={event => setProjectName(event.target.value)} /></div>
-    {mode === "song" ? <section className="panel song-panel"><div className="panel-head"><div><div className="panel-title">Arranjo da música</div><div className="panel-kicker">O PLAY percorre estes blocos, na ordem mostrada.</div></div><button onClick={() => clips.length < 64 && setClips(items => [...items, { id: uid("clip"), patternId: patterns[0].id, repeats: 1 }])}>+ ADICIONAR BLOCO</button></div>{clips.map((clip, index) => <div className="clip" key={clip.id}><b>{String(index + 1).padStart(2, "0")}</b><button disabled={index === 0} onClick={() => setClips(items => items.map((item, position) => position === index - 1 ? clip : position === index ? items[index - 1] : item))}>↑</button><button disabled={index === clips.length - 1} onClick={() => setClips(items => items.map((item, position) => position === index + 1 ? clip : position === index ? items[index + 1] : item))}>↓</button><select value={clip.patternId} onChange={event => setClips(items => items.map(item => item.id === clip.id ? { ...item, patternId: event.target.value } : item))}>{patterns.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select><label>REPETIÇÕES <input type="number" min="1" max="16" value={clip.repeats} onChange={event => setClips(items => items.map(item => item.id === clip.id ? { ...item, repeats: Math.max(1, Math.min(16, Number(event.target.value) || 1)) } : item))} /></label><button onClick={() => clips.length > 1 && setClips(items => items.filter(item => item.id !== clip.id))}>×</button></div>)}</section> : <section className="panel sequencer-panel" data-current-step={currentStep} data-transport-run={transportRun.current} data-engine-token={engine.current.token()}><div className="panel-head"><div><div className="panel-title">Sequenciador principal</div><div className="panel-kicker">{pattern.length} passos · 4/4 · swing {swing}% · {activeGroove}</div></div><div className="transport"><button className={playing ? "play is-playing" : "play"} aria-label={playing ? "Pausar" : "Tocar"} onClick={() => playing ? pause() : void start()}>{playing ? "PAUSE" : "PLAY"}</button><button onClick={stop}>STOP</button><label className="base-toggle"><input type="checkbox" checked={basesEnabled} onChange={event => setBasesEnabled(event.target.checked)} /> BASE</label><button aria-label="Gerar preset de rap" title="Gerar preset clássico boom bap" onClick={randomize}>RND</button></div></div><div className="controls"><label>BPM <input aria-label="BPM" disabled={Boolean(pattern.base)} type="range" min="60" max="180" value={pattern.bpm ?? bpm} onChange={event => { const value = Number(event.target.value); setBpm(value); updatePattern(item => ({ ...item, bpm: value })); }} /></label><strong>{pattern.bpm ?? bpm}<small> BPM</small></strong><label>SWING <input aria-label="Swing" type="range" min="0" max="60" value={swing} onChange={event => setSwing(Number(event.target.value))} /></label><button onClick={() => resize(pattern.length === 16 ? 32 : pattern.length === 32 ? 64 : 16)}>GRADE {pattern.length}</button><button aria-label="limpar grade" onClick={clearPattern}>LIMPAR</button></div><div className="pattern-bar">{patterns.map((item, index) => <button className={index === selectedPattern ? "selected" : ""} key={item.id} onClick={() => setSelectedPattern(index)}>{item.name}</button>)}<button onClick={addPattern}>+ PATTERN</button></div><div className="pattern-editor"><input aria-label="Nome da pattern" value={pattern.name} onChange={event => updatePattern(item => ({ ...item, name: event.target.value || "Sem nome" }))} /><button onClick={duplicatePattern}>DUPLICAR</button><button disabled={patterns.length <= 1} onClick={deletePattern}>EXCLUIR</button></div><BasePanel base={selectedBase} assignment={pattern.base} bases={baseSamples} onPreview={previewSample} onUse={assignBase} onRemove={removeBase} onChange={change => updatePattern(item => ({ ...item, base: item.base ? { ...item.base, ...change } : item.base }))} /><div className="grid-scroll"><div className="grid" style={{ gridTemplateColumns: `260px repeat(${pattern.length}, minmax(28px, 1fr))` }}><div className="corner" />{Array.from({ length: pattern.length }, (_, index) => <div className={`step-number ${index % 4 === 0 ? "bar" : ""}`} key={index}>{String(index + 1).padStart(2, "0")}</div>)}{tracks.map(track => <TrackRow key={track.id} track={track} selected={selectedTrackId === track.id} pattern={pattern} current={currentStep} samples={samples.filter(item => item.role !== "musical-base")} onSelect={() => setSelectedTrackId(track.id)} onToggle={toggleStep} onUpdate={updateTrack} onDuplicate={() => duplicateTrack(track)} onRemove={() => removeTrack(track.id)} />)}</div></div><button className="add-track" disabled={tracks.length >= 16} onClick={addTrack}>+ ADICIONAR LINHA ({tracks.length}/16)</button></section>}
-    <div className="bottom-tools"><button onClick={() => setLibraryOpen(value => !value)}>BIBLIOTECA ({samples.length})</button><button onClick={() => setMixerOpen(value => !value)}>MIXER {mixerOpen ? "▲" : "▼"}</button><button onClick={() => setProjectsOpen(value => !value)}>PROJETOS</button><button onClick={exportProject}>EXPORTAR JSON</button><label className="import-button">IMPORTAR JSON<input type="file" accept="application/json" onChange={event => event.target.files?.[0] && void importProject(event.target.files[0])} /></label><button onClick={() => void exportAudio()}>EXPORTAR WAV</button></div>
-    {libraryOpen && <section className="panel library"><div className="panel-head"><div><div className="panel-title">Biblioteca de samples</div><div className="panel-kicker">Destino: {tracks.find(track => track.id === selectedTrackId)?.name ?? "selecione uma linha"}</div></div><button onClick={() => setLibraryOpen(false)}>FECHAR</button></div><div className="library-filters"><input aria-label="Buscar samples" placeholder="Buscar kick, snare, loop..." value={query} onChange={event => setQuery(event.target.value)} /><select value={pack} onChange={event => setPack(event.target.value)}><option>Todos</option>{[...new Set(samples.map(sample => sample.packName))].map(item => <option key={item}>{item}</option>)}</select><select aria-label="Linha de destino" value={selectedTrackId} onChange={event => setSelectedTrackId(event.target.value)}>{tracks.map(track => <option key={track.id} value={track.id}>{track.name}</option>)}</select></div><div className="sample-list">{filtered.map(sample => <div className="sample-item" key={sample.id}><span><b>{sample.name}</b><small>{sample.category} · {sample.packName} · {sample.kind} · {sample.license}</small></span><button aria-label={`Pré-escutar ${sample.name}`} onClick={() => void previewSample(sample)}>▶</button><button onClick={() => { if (selectedTrackId) updateTrack(selectedTrackId, { sampleId: sample.id }); setStatus(`${sample.name} atribuído à linha selecionada`); }}>USAR</button></div>)}</div></section>}
-    {mixerOpen && <section className="panel mixer"><div className="panel-title">Mixer e master</div><div className="mixer-grid">{tracks.map(track => <div className="channel" key={track.id}><b>{track.name}</b><label>VOL <input aria-label={`Volume ${track.name}`} type="range" min="0" max="100" value={track.volume} onChange={event => updateTrack(track.id, { volume: Number(event.target.value) })} /></label><label>PAN <input aria-label={`Pan ${track.name}`} type="range" min="-1" max="1" step=".01" value={track.pan} onChange={event => updateTrack(track.id, { pan: Number(event.target.value) })} /></label><button className={track.mute ? "engaged" : ""} onClick={() => updateTrack(track.id, { mute: !track.mute })}>{track.mute ? "MUTED" : "MUTE"}</button><button className={track.solo ? "engaged" : ""} onClick={() => updateTrack(track.id, { solo: !track.solo })}>SOLO</button></div>)}</div><div className="master"><b>MASTER</b><label>VOLUME <input aria-label="Volume master" type="range" min="0" max="100" value={master.volume} onChange={event => setMaster(value => ({ ...value, volume: Number(event.target.value), preset: "Personalizado" }))} /></label>{(["low", "mid", "high", "compressor"] as const).map(key => <label key={key}>{key.toUpperCase()} <input type="range" min={key === "compressor" ? 0 : -12} max={key === "compressor" ? 100 : 12} value={master[key]} onChange={event => setMaster(value => ({ ...value, [key]: Number(event.target.value), preset: "Personalizado" }))} /></label>)}<label>PRESET <select value={master.preset} onChange={event => applyPreset(event.target.value)}><option>Clean</option><option>Punch</option><option>Warm</option><option>Loud</option><option>Personalizado</option></select></label><button onClick={() => setMaster(masterDefault)}>RESTAURAR</button></div></section>}
-    {projectsOpen && <section className="panel projects"><div className="panel-head"><div><div className="panel-title">Projetos locais</div><div className="panel-kicker">Salvos somente neste navegador.</div></div><button onClick={() => setProjectsOpen(false)}>FECHAR</button></div>{savedProjects.length ? savedProjects.map(item => <div className="project-item" key={item.id}><span><b>{item.name}</b><small>{new Date(item.updatedAt).toLocaleString("pt-BR")}</small></span><button onClick={() => loadProject(item)}>ABRIR</button><button onClick={() => duplicateProject(item)}>DUPLICAR</button><button onClick={() => { deleteProject(item.id); setSavedProjects(listProjects()); }}>EXCLUIR</button></div>) : <p className="empty-state">Ainda não há projetos salvos.</p>}</section>}
-    <footer className="footer-line"><span>BATIDÃO / RITMO EM PRIMEIRO LUGAR</span><span>{status.toUpperCase()}</span></footer>
-  </main></div>;
+  return (
+    <div className="app">
+      <header className="topbar">
+        <div className="brand">
+          <span className="brand-mark">B/</span> BATIDÃO STUDIO
+        </div>
+        <div className="top-actions">
+          <span className="top-status">
+            <span className="status-dot" /> {catalogState.toUpperCase()}
+          </span>
+          <button onClick={save}>SALVAR</button>
+        </div>
+      </header>
+      <main className="shell">
+        <section className="hero">
+          <div>
+            <div className="eyebrow">Studio local · {projectName}</div>
+            <h1>
+              Crie seu beat,
+              <br />
+              <span>do zero ao groove.</span>
+            </h1>
+          </div>
+          <p className="hero-copy">
+            Todos os controles abaixo alteram o projeto ou o som que está
+            tocando.
+          </p>
+        </section>
+        <div className="studio-tabs">
+          <button
+            className={mode === "pattern" ? "selected" : ""}
+            onClick={() => setMode("pattern")}
+          >
+            PATTERN
+          </button>
+          <button
+            className={mode === "song" ? "selected" : ""}
+            onClick={() => setMode("song")}
+          >
+            MÚSICA
+          </button>
+          <input
+            aria-label="Nome do projeto"
+            value={projectName}
+            onChange={(event) => setProjectName(event.target.value)}
+          />
+        </div>
+        {mode === "song" ? (
+          <section className="panel song-panel">
+            <div className="panel-head">
+              <div>
+                <div className="panel-title">Arranjo da música</div>
+                <div className="panel-kicker">
+                  O PLAY percorre estes blocos, na ordem mostrada.
+                </div>
+              </div>
+              <button
+                onClick={() =>
+                  clips.length < 64 &&
+                  setClips((items) => [
+                    ...items,
+                    { id: uid("clip"), patternId: patterns[0].id, repeats: 1 },
+                  ])
+                }
+              >
+                + ADICIONAR BLOCO
+              </button>
+            </div>
+            {clips.map((clip, index) => (
+              <div className="clip" key={clip.id}>
+                <b>{String(index + 1).padStart(2, "0")}</b>
+                <button
+                  disabled={index === 0}
+                  onClick={() =>
+                    setClips((items) =>
+                      items.map((item, position) =>
+                        position === index - 1
+                          ? clip
+                          : position === index
+                            ? items[index - 1]
+                            : item,
+                      ),
+                    )
+                  }
+                >
+                  ↑
+                </button>
+                <button
+                  disabled={index === clips.length - 1}
+                  onClick={() =>
+                    setClips((items) =>
+                      items.map((item, position) =>
+                        position === index + 1
+                          ? clip
+                          : position === index
+                            ? items[index + 1]
+                            : item,
+                      ),
+                    )
+                  }
+                >
+                  ↓
+                </button>
+                <select
+                  value={clip.patternId}
+                  onChange={(event) =>
+                    setClips((items) =>
+                      items.map((item) =>
+                        item.id === clip.id
+                          ? { ...item, patternId: event.target.value }
+                          : item,
+                      ),
+                    )
+                  }
+                >
+                  {patterns.map((item) => (
+                    <option value={item.id} key={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+                <label>
+                  REPETIÇÕES{" "}
+                  <input
+                    type="number"
+                    min="1"
+                    max="16"
+                    value={clip.repeats}
+                    onChange={(event) =>
+                      setClips((items) =>
+                        items.map((item) =>
+                          item.id === clip.id
+                            ? {
+                                ...item,
+                                repeats: Math.max(
+                                  1,
+                                  Math.min(16, Number(event.target.value) || 1),
+                                ),
+                              }
+                            : item,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+                <button
+                  onClick={() =>
+                    clips.length > 1 &&
+                    setClips((items) =>
+                      items.filter((item) => item.id !== clip.id),
+                    )
+                  }
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </section>
+        ) : (
+          <section
+            className="panel sequencer-panel"
+          >
+            <div className="panel-head">
+              <div>
+                <div className="panel-title">Sequenciador principal</div>
+                <div className="panel-kicker">
+                  {pattern.length} passos · 4/4 · swing {swing}% ·{" "}
+                  {activeGroove}
+                </div>
+              </div>
+              <div className="transport">
+                <button
+                  className={playing ? "play is-playing" : "play"}
+                  aria-label={playing ? "Pausar" : "Tocar"}
+                  onClick={() => (playing ? pause() : void start())}
+                >
+                  {playing ? "PAUSE" : "PLAY"}
+                </button>
+                <button onClick={stop}>STOP</button>
+                <label className="base-toggle">
+                  <input
+                    type="checkbox"
+                    checked={basesEnabled}
+                    onChange={(event) => setBasesEnabled(event.target.checked)}
+                  />{" "}
+                  BASE
+                </label>
+                <button
+                  aria-label="Gerar preset de rap"
+                  title="Gerar preset clássico boom bap"
+                  onClick={randomize}
+                >
+                  RND
+                </button>
+              </div>
+            </div>
+            <div className="controls">
+              <label>
+                BPM{" "}
+                <input
+                  aria-label="BPM"
+                  disabled={Boolean(pattern.base)}
+                  type="range"
+                  min="60"
+                  max="180"
+                  value={pattern.bpm ?? bpm}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    setBpm(value);
+                    updatePattern((item) => ({ ...item, bpm: value }));
+                  }}
+                />
+              </label>
+              <strong>
+                {pattern.bpm ?? bpm}
+                <small> BPM</small>
+              </strong>
+              <label>
+                SWING{" "}
+                <input
+                  aria-label="Swing"
+                  type="range"
+                  min="0"
+                  max="60"
+                  value={swing}
+                  onChange={(event) => setSwing(Number(event.target.value))}
+                />
+              </label>
+              <button
+                onClick={() =>
+                  resize(
+                    pattern.length === 16
+                      ? 32
+                      : pattern.length === 32
+                        ? 64
+                        : 16,
+                  )
+                }
+              >
+                GRADE {pattern.length}
+              </button>
+              <button aria-label="limpar grade" onClick={clearPattern}>
+                LIMPAR
+              </button>
+            </div>
+            <div className="pattern-bar">
+              {patterns.map((item, index) => (
+                <button
+                  className={index === selectedPattern ? "selected" : ""}
+                  key={item.id}
+                  onClick={() => setSelectedPattern(index)}
+                >
+                  {item.name}
+                </button>
+              ))}
+              <button onClick={addPattern}>+ PATTERN</button>
+            </div>
+            <div className="pattern-editor">
+              <input
+                aria-label="Nome da pattern"
+                value={pattern.name}
+                onChange={(event) =>
+                  updatePattern((item) => ({
+                    ...item,
+                    name: event.target.value || "Sem nome",
+                  }))
+                }
+              />
+              <button onClick={duplicatePattern}>DUPLICAR</button>
+              <button disabled={patterns.length <= 1} onClick={deletePattern}>
+                EXCLUIR
+              </button>
+            </div>
+            <div className="workspace-tabs">
+              <button
+                className={workspace === "drums" ? "selected" : ""}
+                onClick={() => setWorkspace("drums")}
+              >
+                BATERIA
+              </button>
+              <button
+                className={workspace === "keyboard" ? "selected" : ""}
+                onClick={() => setWorkspace("keyboard")}
+              >
+                TECLADO
+              </button>
+            </div>
+            {workspace === "drums" ? (
+              <>
+                <BasePanel
+                  base={selectedBase}
+                  assignment={pattern.base}
+                  bases={baseSamples}
+                  onPreview={previewSample}
+                  onUse={assignBase}
+                  onRemove={removeBase}
+                  onChange={(change) =>
+                    updatePattern((item) => ({
+                      ...item,
+                      base: item.base ? { ...item.base, ...change } : item.base,
+                    }))
+                  }
+                />
+                <div className="grid-scroll">
+                  <div
+                    className="grid"
+                    style={{
+                      gridTemplateColumns: `260px repeat(${pattern.length}, minmax(28px, 1fr))`,
+                    }}
+                  >
+                    <div className="corner" />
+                    {Array.from({ length: pattern.length }, (_, index) => (
+                      <div
+                        className={`step-number ${index % 4 === 0 ? "bar" : ""}`}
+                        key={index}
+                      >
+                        {String(index + 1).padStart(2, "0")}
+                      </div>
+                    ))}
+                    {tracks.map((track) => (
+                      <TrackRow
+                        key={track.id}
+                        track={track}
+                        selected={selectedTrackId === track.id}
+                        pattern={pattern}
+                        current={currentStep}
+                        samples={samples.filter(
+                          (item) => item.role !== "musical-base",
+                        )}
+                        onSelect={() => setSelectedTrackId(track.id)}
+                        onToggle={toggleStep}
+                        onUpdate={updateTrack}
+                        onDuplicate={() => duplicateTrack(track)}
+                        onRemove={() => removeTrack(track.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <button
+                  className="add-track"
+                  disabled={tracks.length >= 16}
+                  onClick={addTrack}
+                >
+                  + ADICIONAR LINHA ({tracks.length}/16)
+                </button>
+              </>
+            ) : (
+              <KeyboardStudio
+                pattern={pattern}
+                tracks={melodicTracks}
+                selectedTrackId={selectedMelodicTrackId}
+                bpm={pattern.bpm ?? bpm}
+                swing={swing}
+                master={master}
+                playing={playing}
+                engine={engine.current}
+                onSelectTrack={setSelectedMelodicTrackId}
+                onTracksChange={setMelodicTracks}
+                onPatternChange={(next) => updatePattern(() => next)}
+                onStartFromBeginning={async () => {
+                  pausedOffset.current = 0;
+                  const startedAt = await start(true);
+                  return startedAt ?? engine.current.context?.currentTime ?? 0;
+                }}
+                onStop={stop}
+                onStatus={setStatus}
+              />
+            )}
+          </section>
+        )}
+        <div className="bottom-tools">
+          <button onClick={() => setLibraryOpen((value) => !value)}>
+            BIBLIOTECA ({samples.length})
+          </button>
+          <button onClick={() => setMixerOpen((value) => !value)}>
+            MIXER {mixerOpen ? "▲" : "▼"}
+          </button>
+          <button onClick={() => setProjectsOpen((value) => !value)}>
+            PROJETOS
+          </button>
+          <button onClick={exportProject}>EXPORTAR JSON</button>
+          <label className="import-button">
+            IMPORTAR JSON
+            <input
+              type="file"
+              accept="application/json"
+              onChange={(event) =>
+                event.target.files?.[0] &&
+                void importProject(event.target.files[0])
+              }
+            />
+          </label>
+          <button onClick={() => void exportAudio()}>EXPORTAR WAV</button>
+        </div>
+        {libraryOpen && (
+          <section className="panel library">
+            <div className="panel-head">
+              <div>
+                <div className="panel-title">Biblioteca de samples</div>
+                <div className="panel-kicker">
+                  Destino:{" "}
+                  {tracks.find((track) => track.id === selectedTrackId)?.name ??
+                    "selecione uma linha"}
+                </div>
+              </div>
+              <button onClick={() => setLibraryOpen(false)}>FECHAR</button>
+            </div>
+            <div className="library-filters">
+              <input
+                aria-label="Buscar samples"
+                placeholder="Buscar kick, snare, loop..."
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              <select
+                value={pack}
+                onChange={(event) => setPack(event.target.value)}
+              >
+                <option>Todos</option>
+                {[...new Set(samples.map((sample) => sample.packName))].map(
+                  (item) => (
+                    <option key={item}>{item}</option>
+                  ),
+                )}
+              </select>
+              <select
+                aria-label="Linha de destino"
+                value={selectedTrackId}
+                onChange={(event) => setSelectedTrackId(event.target.value)}
+              >
+                {tracks.map((track) => (
+                  <option key={track.id} value={track.id}>
+                    {track.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="sample-list">
+              {filtered.map((sample) => (
+                <div className="sample-item" key={sample.id}>
+                  <span>
+                    <b>{sample.name}</b>
+                    <small>
+                      {sample.category} · {sample.packName} · {sample.kind} ·{" "}
+                      {sample.license}
+                    </small>
+                  </span>
+                  <button
+                    aria-label={`Pré-escutar ${sample.name}`}
+                    onClick={() => void previewSample(sample)}
+                  >
+                    ▶
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (selectedTrackId)
+                        updateTrack(selectedTrackId, { sampleId: sample.id });
+                      setStatus(`${sample.name} atribuído à linha selecionada`);
+                    }}
+                  >
+                    USAR
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+        {mixerOpen && (
+          <section className="panel mixer">
+            <div className="panel-title">Mixer e master</div>
+            <div className="mixer-grid">
+              {tracks.map((track) => (
+                <div className="channel" key={track.id}>
+                  <b>{track.name}</b>
+                  <label>
+                    VOL{" "}
+                    <input
+                      aria-label={`Volume ${track.name}`}
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={track.volume}
+                      onChange={(event) =>
+                        updateTrack(track.id, {
+                          volume: Number(event.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    PAN{" "}
+                    <input
+                      aria-label={`Pan ${track.name}`}
+                      type="range"
+                      min="-1"
+                      max="1"
+                      step=".01"
+                      value={track.pan}
+                      onChange={(event) =>
+                        updateTrack(track.id, {
+                          pan: Number(event.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <button
+                    className={track.mute ? "engaged" : ""}
+                    onClick={() => updateTrack(track.id, { mute: !track.mute })}
+                  >
+                    {track.mute ? "MUTED" : "MUTE"}
+                  </button>
+                  <button
+                    className={track.solo ? "engaged" : ""}
+                    onClick={() => updateTrack(track.id, { solo: !track.solo })}
+                  >
+                    SOLO
+                  </button>
+                </div>
+              ))}
+              {melodicTracks.map((track) => (
+                <div className="channel melodic-channel" key={track.id}>
+                  <b>
+                    {track.name} <small>TECLADO</small>
+                  </b>
+                  <label>
+                    VOL{" "}
+                    <input
+                      aria-label={`Volume ${track.name}`}
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={track.volume}
+                      onChange={(event) =>
+                        setMelodicTracks((items) =>
+                          items.map((item) =>
+                            item.id === track.id
+                              ? { ...item, volume: Number(event.target.value) }
+                              : item,
+                          ),
+                        )
+                      }
+                    />
+                  </label>
+                  <label>
+                    PAN{" "}
+                    <input
+                      aria-label={`Pan ${track.name}`}
+                      type="range"
+                      min="-1"
+                      max="1"
+                      step=".01"
+                      value={track.pan}
+                      onChange={(event) =>
+                        setMelodicTracks((items) =>
+                          items.map((item) =>
+                            item.id === track.id
+                              ? { ...item, pan: Number(event.target.value) }
+                              : item,
+                          ),
+                        )
+                      }
+                    />
+                  </label>
+                  <button
+                    className={track.mute ? "engaged" : ""}
+                    onClick={() =>
+                      setMelodicTracks((items) =>
+                        items.map((item) =>
+                          item.id === track.id
+                            ? { ...item, mute: !item.mute }
+                            : item,
+                        ),
+                      )
+                    }
+                  >
+                    {track.mute ? "MUTED" : "MUTE"}
+                  </button>
+                  <button
+                    className={track.solo ? "engaged" : ""}
+                    onClick={() =>
+                      setMelodicTracks((items) =>
+                        items.map((item) =>
+                          item.id === track.id
+                            ? { ...item, solo: !item.solo }
+                            : item,
+                        ),
+                      )
+                    }
+                  >
+                    SOLO
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="master">
+              <b>MASTER</b>
+              <label>
+                VOLUME{" "}
+                <input
+                  aria-label="Volume master"
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={master.volume}
+                  onChange={(event) =>
+                    setMaster((value) => ({
+                      ...value,
+                      volume: Number(event.target.value),
+                      preset: "Personalizado",
+                    }))
+                  }
+                />
+              </label>
+              {(["low", "mid", "high", "compressor"] as const).map((key) => (
+                <label key={key}>
+                  {key.toUpperCase()}{" "}
+                  <input
+                    type="range"
+                    min={key === "compressor" ? 0 : -12}
+                    max={key === "compressor" ? 100 : 12}
+                    value={master[key]}
+                    onChange={(event) =>
+                      setMaster((value) => ({
+                        ...value,
+                        [key]: Number(event.target.value),
+                        preset: "Personalizado",
+                      }))
+                    }
+                  />
+                </label>
+              ))}
+              <label>
+                PRESET{" "}
+                <select
+                  value={master.preset}
+                  onChange={(event) => applyPreset(event.target.value)}
+                >
+                  <option>Clean</option>
+                  <option>Punch</option>
+                  <option>Warm</option>
+                  <option>Loud</option>
+                  <option>Personalizado</option>
+                </select>
+              </label>
+              <button onClick={() => setMaster(masterDefault)}>
+                RESTAURAR
+              </button>
+            </div>
+          </section>
+        )}
+        {projectsOpen && (
+          <section className="panel projects">
+            <div className="panel-head">
+              <div>
+                <div className="panel-title">Projetos locais</div>
+                <div className="panel-kicker">
+                  Salvos somente neste navegador.
+                </div>
+              </div>
+              <button onClick={() => setProjectsOpen(false)}>FECHAR</button>
+            </div>
+            {savedProjects.length ? (
+              savedProjects.map((item) => (
+                <div className="project-item" key={item.id}>
+                  <span>
+                    <b>{item.name}</b>
+                    <small>
+                      {new Date(item.updatedAt).toLocaleString("pt-BR")}
+                    </small>
+                  </span>
+                  <button onClick={() => loadProject(item)}>ABRIR</button>
+                  <button onClick={() => duplicateProject(item)}>
+                    DUPLICAR
+                  </button>
+                  <button
+                    onClick={() => {
+                      deleteProject(item.id);
+                      setSavedProjects(listProjects());
+                    }}
+                  >
+                    EXCLUIR
+                  </button>
+                </div>
+              ))
+            ) : (
+              <p className="empty-state">Ainda não há projetos salvos.</p>
+            )}
+          </section>
+        )}
+        <footer className="footer-line">
+          <span>BATIDÃO / RITMO EM PRIMEIRO LUGAR</span>
+          <span>{status.toUpperCase()}</span>
+        </footer>
+      </main>
+    </div>
+  );
 }
 
-function TrackRow({ track, selected, pattern, current, samples, onSelect, onToggle, onUpdate, onDuplicate, onRemove }: { track: Track; selected: boolean; pattern: Pattern; current: number; samples: SampleDescriptor[]; onSelect: () => void; onToggle: (trackId: string, index: number) => void; onUpdate: (trackId: string, change: Partial<Track>) => void; onDuplicate: () => void; onRemove: () => void }) {
-  return <><div className={`row-label ${selected ? "selected-row" : ""}`} style={{ "--row-color": track.color } as React.CSSProperties} onClick={onSelect}><i /><input aria-label={`Nome da linha ${track.name}`} value={track.name} onChange={event => onUpdate(track.id, { name: event.target.value || "Sem nome" })} /><select aria-label={`Sample de ${track.name}`} value={track.sampleId} onChange={event => onUpdate(track.id, { sampleId: event.target.value })}>{samples.map(sample => <option key={sample.id} value={sample.id}>{sample.name} · {sample.packName}</option>)}</select><span className="row-actions"><button className="row-duplicate" aria-label={`Duplicar linha ${track.name}`} title="Duplicar linha" onClick={event => { event.stopPropagation(); onDuplicate(); }}>⧉</button><button className="row-remove" aria-label={`Remover linha ${track.name}`} title="Remover linha" onClick={event => { event.stopPropagation(); onRemove(); }}>×</button></span></div>{pattern.steps[track.id]?.map((step, index) => <button key={index} aria-label={`${track.name}, passo ${index + 1}, ${step.active ? "ativo" : "inativo"}`} className={`pad ${step.active ? "active" : ""} ${current === index ? "current" : ""}`} style={{ "--row-color": track.color, opacity: step.active ? .55 + step.velocity * .45 : 1 } as React.CSSProperties} onClick={() => onToggle(track.id, index)} />)}</>;
+function TrackRow({
+  track,
+  selected,
+  pattern,
+  current,
+  samples,
+  onSelect,
+  onToggle,
+  onUpdate,
+  onDuplicate,
+  onRemove,
+}: {
+  track: Track;
+  selected: boolean;
+  pattern: Pattern;
+  current: number;
+  samples: SampleDescriptor[];
+  onSelect: () => void;
+  onToggle: (trackId: string, index: number) => void;
+  onUpdate: (trackId: string, change: Partial<Track>) => void;
+  onDuplicate: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <>
+      <div
+        className={`row-label ${selected ? "selected-row" : ""}`}
+        style={{ "--row-color": track.color } as React.CSSProperties}
+        onClick={onSelect}
+      >
+        <i />
+        <input
+          aria-label={`Nome da linha ${track.name}`}
+          value={track.name}
+          onChange={(event) =>
+            onUpdate(track.id, { name: event.target.value || "Sem nome" })
+          }
+        />
+        <select
+          aria-label={`Sample de ${track.name}`}
+          value={track.sampleId}
+          onChange={(event) =>
+            onUpdate(track.id, { sampleId: event.target.value })
+          }
+        >
+          {samples.map((sample) => (
+            <option key={sample.id} value={sample.id}>
+              {sample.name} · {sample.packName}
+            </option>
+          ))}
+        </select>
+        <span className="row-actions">
+          <button
+            className="row-duplicate"
+            aria-label={`Duplicar linha ${track.name}`}
+            title="Duplicar linha"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDuplicate();
+            }}
+          >
+            ⧉
+          </button>
+          <button
+            className="row-remove"
+            aria-label={`Remover linha ${track.name}`}
+            title="Remover linha"
+            onClick={(event) => {
+              event.stopPropagation();
+              onRemove();
+            }}
+          >
+            ×
+          </button>
+        </span>
+      </div>
+      {pattern.steps[track.id]?.map((step, index) => (
+        <button
+          key={index}
+          aria-label={`${track.name}, passo ${index + 1}, ${step.active ? "ativo" : "inativo"}`}
+          className={`pad ${step.active ? "active" : ""} ${current === index ? "current" : ""}`}
+          style={
+            {
+              "--row-color": track.color,
+              opacity: step.active ? 0.55 + step.velocity * 0.45 : 1,
+            } as React.CSSProperties
+          }
+          onClick={() => onToggle(track.id, index)}
+        />
+      ))}
+    </>
+  );
 }
 
-function BasePanel({ base, assignment, bases, onPreview, onUse, onRemove, onChange }: { base?: SampleDescriptor; assignment: Pattern["base"]; bases: SampleDescriptor[]; onPreview: (sample: SampleDescriptor) => Promise<void>; onUse: (sample: SampleDescriptor) => Promise<void>; onRemove: () => void; onChange: (change: { volume?: number; muted?: boolean }) => void }) {
-  return <section className="base-panel"><div className="panel-head"><div><div className="panel-title">Base musical</div><div className="panel-kicker">Escolha uma base instrumental para tocar junto com a bateria.</div></div>{base && <button aria-label="Remover base musical" onClick={onRemove}>×</button>}</div>{base ? <div className="base-selected"><div><b>{base.name}</b><small>{base.musical?.style} · {base.musical?.origin === "brasil" ? "Brasil" : "Global"} · {base.musical?.bpm} BPM · {base.musical?.key ?? "tom livre"}</small><small>{base.sourceEvidence?.licenseUrl ? "Licença verificada" : base.license}</small></div><button onClick={() => void onPreview(base)}>▶</button><label>VOL <input aria-label="Volume da base" type="range" min="0" max="100" value={assignment?.volume ?? 68} onChange={event => onChange({ volume: Number(event.target.value) })} /></label><button className={assignment?.muted ? "engaged" : ""} onClick={() => onChange({ muted: !assignment?.muted })}>{assignment?.muted ? "MUTED" : "MUTE"}</button></div> : <p className="empty-state">Nenhuma base selecionada. Escolha uma abaixo.</p>}<div className="base-list">{bases.map(item => <div className="base-item" key={item.id}><span><b>{item.name}</b><small>{item.musical?.style} · {item.musical?.origin === "brasil" ? "Brasil" : "Global"} · {item.musical?.bpm} BPM · {item.musical?.key ?? "tom livre"}</small></span><button aria-label={`Pré-escutar ${item.name}`} onClick={() => void onPreview(item)}>▶</button><button onClick={() => void onUse(item)}>USAR</button></div>)}</div></section>;
+function BasePanel({
+  base,
+  assignment,
+  bases,
+  onPreview,
+  onUse,
+  onRemove,
+  onChange,
+}: {
+  base?: SampleDescriptor;
+  assignment: Pattern["base"];
+  bases: SampleDescriptor[];
+  onPreview: (sample: SampleDescriptor) => Promise<void>;
+  onUse: (sample: SampleDescriptor) => Promise<void>;
+  onRemove: () => void;
+  onChange: (change: { volume?: number; muted?: boolean }) => void;
+}) {
+  return (
+    <section className="base-panel">
+      <div className="panel-head">
+        <div>
+          <div className="panel-title">Base musical</div>
+          <div className="panel-kicker">
+            Escolha uma base instrumental para tocar junto com a bateria.
+          </div>
+        </div>
+        {base && (
+          <button aria-label="Remover base musical" onClick={onRemove}>
+            ×
+          </button>
+        )}
+      </div>
+      {base ? (
+        <div className="base-selected">
+          <div>
+            <b>{base.name}</b>
+            <small>
+              {base.musical?.style} ·{" "}
+              {base.musical?.origin === "brasil" ? "Brasil" : "Global"} ·{" "}
+              {base.musical?.bpm} BPM · {base.musical?.key ?? "tom livre"}
+            </small>
+            <small>
+              {base.sourceEvidence?.licenseUrl
+                ? "Licença verificada"
+                : base.license}
+            </small>
+          </div>
+          <button onClick={() => void onPreview(base)}>▶</button>
+          <label>
+            VOL{" "}
+            <input
+              aria-label="Volume da base"
+              type="range"
+              min="0"
+              max="100"
+              value={assignment?.volume ?? 68}
+              onChange={(event) =>
+                onChange({ volume: Number(event.target.value) })
+              }
+            />
+          </label>
+          <button
+            className={assignment?.muted ? "engaged" : ""}
+            onClick={() => onChange({ muted: !assignment?.muted })}
+          >
+            {assignment?.muted ? "MUTED" : "MUTE"}
+          </button>
+        </div>
+      ) : (
+        <p className="empty-state">
+          Nenhuma base selecionada. Escolha uma abaixo.
+        </p>
+      )}
+      <div className="base-list">
+        {bases.map((item) => (
+          <div className="base-item" key={item.id}>
+            <span>
+              <b>{item.name}</b>
+              <small>
+                {item.musical?.style} ·{" "}
+                {item.musical?.origin === "brasil" ? "Brasil" : "Global"} ·{" "}
+                {item.musical?.bpm} BPM · {item.musical?.key ?? "tom livre"}
+              </small>
+            </span>
+            <button
+              aria-label={`Pré-escutar ${item.name}`}
+              onClick={() => void onPreview(item)}
+            >
+              ▶
+            </button>
+            <button onClick={() => void onUse(item)}>USAR</button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }

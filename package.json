@@ -9,23 +9,26 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "node scripts/run-e2e.mjs",
-    "catalog": "node scripts/generate-sample-catalog.mjs"
+    "catalog": "node scripts/generate-sample-catalog.mjs",
+    "instruments:download": "node scripts/download-instruments.mjs && node scripts/encode-instruments.mjs",
+    "instruments:encode": "node scripts/encode-instruments.mjs",
+    "instruments:verify": "node scripts/download-instruments.mjs --verify"
   },
   "dependencies": {
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.3",
-    "@testing-library/user-event": "^14.6.7",
-    "jsdom": "^29.1.1",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "vitest": "^2.1.9"
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.7",
+    "jsdom": "29.1.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "vitest": "2.1.9"
   },
   "devDependencies": {
-    "@playwright/test": "^1.52.0",
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
-    "typescript": "^5.5.4",
-    "vite": "^5.4.2"
+    "@playwright/test": "1.62.1",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "@vitejs/plugin-react": "4.7.0",
+    "typescript": "5.9.3",
+    "vite": "5.4.21"
   }
 }

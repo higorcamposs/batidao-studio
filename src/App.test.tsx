@@ -73,4 +73,84 @@ describe("fluxos funcionais do estúdio", () => {
     expect(screen.queryByLabelText("Nome da linha Kick")).not.toBeInTheDocument();
     expect(container.querySelectorAll(".row-label")).toHaveLength(7);
   });
+
+  it("abre o teclado com quatro trilhas e assistências independentes", async () => {
+    render(<App />);
+    await ready();
+    fireEvent.click(screen.getByRole("button", { name: "TECLADO" }));
+    expect(screen.getByRole("group", { name: "Teclado virtual" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Instrumento")).toHaveValue("grand-piano");
+    expect(screen.getByRole("checkbox", { name: /ENCAIXAR TEMPO/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /NOTAS NA ESCALA/ })).toBeChecked();
+    expect(screen.getByRole("button", { name: "Guitarra" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Flauta" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Baixo" })).toBeInTheDocument();
+  });
+
+  it("migra um projeto V2 sem alterar bateria e cria as trilhas melódicas", async () => {
+    const steps = Array.from({ length: 16 }, (_, index) => ({
+      active: index === 0,
+      velocity: 1,
+    }));
+    localStorage.setItem(
+      "batidao-studio-projects-v2",
+      JSON.stringify([
+        {
+          version: 2,
+          id: "legacy-v2",
+          name: "Projeto V2",
+          bpm: 88,
+          swing: 24,
+          tracks: [
+            {
+              id: "kick-track",
+              name: "Kick legado",
+              short: "K",
+              color: "#d4f56a",
+              sampleId: "kick",
+              volume: 1,
+              pan: 0,
+              mute: false,
+              solo: false,
+            },
+          ],
+          patterns: [
+            {
+              id: "legacy-pattern",
+              name: "Loop legado",
+              length: 16,
+              bpm: 88,
+              steps: { "kick-track": steps },
+              base: null,
+            },
+          ],
+          arrangement: [
+            { id: "legacy-clip", patternId: "legacy-pattern", repeats: 1 },
+          ],
+          master: {
+            volume: 0.9,
+            low: 0,
+            mid: 0,
+            high: 0,
+            compressor: 0.45,
+            limiter: true,
+            preset: "Clean",
+          },
+          updatedAt: "2026-09-04T00:00:00.000Z",
+        },
+      ]),
+    );
+    const { container } = render(<App />);
+    await ready();
+    fireEvent.click(screen.getByRole("button", { name: /PROJETOS/ }));
+    const projectRow = screen.getByText("Projeto V2").closest(".project-item");
+    fireEvent.click(projectRow!.querySelector("button")!);
+    expect(screen.getByLabelText("Nome da linha Kick legado")).toBeInTheDocument();
+    expect(container.querySelectorAll(".pad.active")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "TECLADO" }));
+    expect(screen.getByRole("button", { name: "Piano" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Guitarra" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Flauta" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Baixo" })).toBeInTheDocument();
+  });
 });
