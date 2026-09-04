@@ -1,0 +1,1 @@
+- [Playwright WebKit audio on Replit](playwright-webkit-audio.md) — expose GStreamer autodetect plus an ALSA null sink so WPE can run real-time Web Audio tests.

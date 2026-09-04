@@ -40,7 +40,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm test && npm run build"
+args = "npm test && npm run build && npm run test:e2e"
 
 [workflows.workflow.metadata]
 isValidation = true
